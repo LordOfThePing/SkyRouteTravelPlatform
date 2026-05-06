@@ -1,0 +1,23 @@
+<nav class="bg-brand-900 text-white shadow-lg">
+  <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex items-center justify-between h-16">
+    <a routerLink="/search" class="text-xl font-bold tracking-tight hover:text-brand-100 transition-colors">
+      ✈ SkyRoute
+    </a>
+    <div class="flex items-center gap-6 text-sm font-medium">
+      <a routerLink="/search"
+         routerLinkActive="text-brand-100 underline underline-offset-4"
+         class="hover:text-brand-100 transition-colors">
+        Search
+      </a>
+      <span class="text-xs px-2 py-0.5 rounded-full font-semibold"
+            [class]="apiStatus() === 'online'  ? 'bg-green-600'  :
+                     apiStatus() === 'offline' ? 'bg-red-600'    : 'bg-yellow-500'">
+        API {{ apiStatus() }}
+      </span>
+    </div>
+  </div>
+</nav>
+
+<main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+  <router-outlet />
+</main>
