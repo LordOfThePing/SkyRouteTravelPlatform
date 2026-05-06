@@ -1,0 +1,13 @@
+import { Component } from '@angular/core';
+
+@Component({
+  selector: 'app-confirmation-page',
+  standalone: true,
+  template: `
+    <div class="card">
+      <h1 class="text-2xl font-bold text-gray-900 mb-2">Booking Confirmed</h1>
+      <p class="text-gray-500 text-sm">Sprint 3 — coming next.</p>
+    </div>
+  `,
+})
+export class ConfirmationPageComponent {}
