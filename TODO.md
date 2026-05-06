@@ -16,31 +16,6 @@ If the clock runs out, ship Must-have + README and document the rest under §"If
 
 ---
 
-## Sprint 1 — Search flow (≈45 min)
-
-- **Objective:** End-to-end flight search across both mock providers with correct pricing.
-- **In scope:**
-  - Angular search form (Reactive Forms): origin, destination, departure date, passengers (1–9), cabin class.
-  - Service layer in Angular calls `POST /api/flights/search`; results model typed.
-  - Results list rendered (provider, flight #, departure, arrival, duration, cabin, prices).
-- **Out of scope:** sorting, booking, error UI polish.
-- **Dependencies:** Sprint 0.
-- **Risks:** mock determinism (same query → same results) — seed RNG by `(origin, destination, date, providerId)`.
-- **DoD:** Submitting form returns ≥1 result per provider with correct math; verified with two manual test cases.
-
-## Sprint 2 — Results, sorting, loading & empty states (≈30 min)
-
-- **Objective:** Production-grade results UX, frontend-only sorting.
-- **In scope:**
-  - Results list: **total price (primary)**, per-passenger (secondary), all flight fields visible.
-  - Sort dropdown: price ↑, price ↓, duration ↑, departure time. Pure client-side sort on a copy of the array.
-  - Loading spinner bound to search-in-flight signal.
-  - Empty state component with explanatory copy and CTA to refine search.
-- **Out of scope:** pagination, filters beyond sort.
-- **Dependencies:** Sprint 1.
-- **Risks:** sort instability — use stable comparators; tie-break on flight number.
-- **DoD:** All four sorts verified; empty state shown when API returns `[]`; spinner visible during request.
-
 ## Sprint 3 — Booking flow + multi-passenger + dynamic document rule (≈55 min)
 
 - **Objective:** Functional booking with route-aware document field, one form per passenger, persisted in SQLite.
@@ -163,3 +138,16 @@ If the clock runs out, ship Must-have + README and document the rest under §"If
 - Client-side validation added for required fields, passenger range, and same origin/destination guard.
 - Results table rendered with provider, flight number, departure, arrival, duration, cabin, per-passenger price, and total price.
 - Frontend build verification completed (`ng build` clean after Sprint 1 changes).
+
+---
+
+## ✅ Sprint 2 — Results, sorting, loading & empty states (DONE)
+
+**Completed:** 2026-05-06
+
+- Client-side sorting added on search results: price ascending, price descending, duration ascending, and departure time ascending.
+- Stable sort behavior implemented with tie-breakers on flight number and original index.
+- Dedicated loading state card with spinner added while search requests are in flight.
+- Empty-state card added for successful searches returning no flights, with guidance to refine criteria.
+- Results list now renders from computed sorted data while preserving total price prominence.
+- Frontend build verification completed (`ng build` clean after Sprint 2 changes).
