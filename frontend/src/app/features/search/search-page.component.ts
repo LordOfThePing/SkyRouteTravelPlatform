@@ -2,10 +2,13 @@ import { CommonModule, DatePipe, DecimalPipe } from '@angular/common';
 import { Component, OnInit, computed, inject, signal } from '@angular/core';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { Router } from '@angular/router';
-import { finalize } from 'rxjs/operators';
+import { forkJoin, timer } from 'rxjs';
+import { finalize, map } from 'rxjs/operators';
 import { Airport } from '../../core/models/airport.model';
 import { FlightOffer, SearchRequest } from '../../core/models/flight.model';
 import { ApiService } from '../../core/services/api.service';
+
+const MIN_LOADING_MS = 2000;
 
 @Component({
   selector: 'app-search-page',
@@ -212,7 +215,14 @@ export class SearchPageComponent implements OnInit {
     const request = this.buildRequest();
     this.isLoading.set(true);
 
-    this.api.searchFlights(request).pipe(
+    // Hold the spinner for at least MIN_LOADING_MS so the loading state is
+    // perceivable even when the mock returns instantly. The API call and the
+    // timer run concurrently; whichever finishes last unblocks the UI.
+    forkJoin({
+      response: this.api.searchFlights(request),
+      _delay: timer(MIN_LOADING_MS),
+    }).pipe(
+      map(({ response }) => response),
       finalize(() => this.isLoading.set(false)),
     ).subscribe({
       next: response => this.offers.set(response.results),

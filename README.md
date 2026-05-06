@@ -9,12 +9,14 @@ Senior full-stack technical assessment. Angular 17 + .NET 8 implementation of Sk
 | Backend solution + EF Core + SQLite + migrations  | ✅ |
 | Provider abstraction, GlobalAir, BudgetWings      | ✅ |
 | Pricing strategies (15 % surcharge / 10 % + floor) | ✅ |
-| `GET /api/flights/search`, `POST /api/bookings`, `GET /api/airports`, `GET /health` | ✅ |
+| `GET /api/flights/search`, `POST /api/bookings`, `GET /api/airports`, `GET /api/providers`, `GET /health` | ✅ |
 | FluentValidation (incl. passport / national-ID format), ProblemDetails, exception middleware, rate limiter attached, CORS | ✅ |
+| Serilog with per-request logs (`HTTP GET /path responded 200 in 15 ms`) | ✅ |
 | Angular search form, results table, 4 client-side sorts, loading + empty states | ✅ |
 | Booking flow with `FormArray` (one form per passenger) and dynamic `Passport`/`National ID` field | ✅ |
 | Confirmation page (reference + persisted passenger summary)        | ✅ |
-| Backend tests (30) and frontend tests (11), all passing             | ✅ |
+| Backend tests (32) and frontend tests (11), all passing             | ✅ |
+| Per-provider timeout in aggregator + caller cancellation propagation | ✅ |
 | `make build` / `make test-all` work end-to-end                      | ✅ |
 
 ---
@@ -117,7 +119,7 @@ Senior full-stack technical assessment. Angular 17 + .NET 8 implementation of Sk
 | EF Core 8 + SQLite            | Code-first persistence; file-based DB for local-only deliverable; swappable later via provider change. |
 | FluentValidation              | Cleaner, testable validation rules vs. data annotations.                         |
 | Built-in Rate Limiter         | First-party, no external dependency.                                             |
-| Default `ILogger` (Serilog planned) | Structured logs are a planned next step; using Microsoft default for now.   |
+| Serilog + `UseSerilogRequestLogging` | Per-request structured logs to console; Serilog config from `appsettings.json` so sinks (file, Seq, ELK) can be swapped without code changes. |
 | xUnit + FluentAssertions      | Readable assertion syntax over plain xUnit.                                      |
 | Swashbuckle / OpenAPI         | Auto-generated API docs for the demo walkthrough.                                |
 
@@ -217,6 +219,19 @@ Response `201 Created`:
 
 Returns the hardcoded airport catalogue (code, name, city, country). Used to populate dropdowns and to drive domestic/international detection.
 
+### `GET /api/providers`
+
+Lists the airline providers currently registered with the platform — concrete proof that the system enumerates `IEnumerable<IFlightProvider>` from DI rather than hard-coding provider awareness.
+
+```json
+[
+  { "providerId": "BudgetWings" },
+  { "providerId": "GlobalAir" }
+]
+```
+
+Adding a real airline (Amadeus, Sabre, an airline's own API) makes it appear here automatically with no controller / aggregator / frontend changes — see [§ Onboarding a real airline provider](#onboarding-a-real-airline-provider) below for the complete recipe.
+
 ### Error model — RFC 7807 ProblemDetails
 
 ```json
@@ -253,7 +268,7 @@ Even though the brief does not mandate auth, the API surface is hardened defensi
 - **Abuse / rate limiting (implemented)** — ASP.NET Core fixed-window rate limiter with two policies: `60 req/min` for search (`[EnableRateLimiting("search")]` on `FlightsController.Search`) and `20 req/min` for booking (`[EnableRateLimiting("booking")]` on `BookingsController.Create`). Returns `429 Too Many Requests` when exceeded.
 - **CORS (implemented)** — locked to `http://localhost:4200` in development; tighten to the production origin when deployed.
 - **HTTPS (implemented)** — `UseHttpsRedirection` is active (HSTS would be added when running outside Development).
-- **Sensitive data handling (planned)** — passenger PII (name, email, document) is currently not logged at all; structured logging with PII-safe scopes is a planned step (Serilog, see §10).
+- **Sensitive data handling (partial)** — Serilog logs HTTP method/path/status/duration plus client IP and user-agent. Passenger PII (name, email, document) is **not** logged — request bodies are never written to logs. PII-safe scopes for booking-flow events (`bookings.created`, etc.) are a planned step.
 - **Document format (FE + BE)** — passport/national-ID regex enforced both in the Angular form (`/^[A-Z0-9]{6,12}$/` passport, `/^[A-Z0-9]{6,14}$/` national ID) and on the server inside `PassengerValidator`. Frontend gives instant feedback; backend rejects bypass attempts.
 - **Auth/Authz** — **out of scope for this challenge**. Designed-in seam: controllers accept `[Authorize]` cleanly once an auth scheme is added; bookings would become user-scoped via a `userId` column.
 
@@ -263,13 +278,17 @@ Even though the brief does not mandate auth, the API surface is hardened defensi
 
 - **Stateless API (implemented)** — no server-side session. Bookings persisted via `IBookingRepository` (EF Core + SQLite today; same `DbContext` works against Postgres or SQL Server with a one-line provider change). Horizontal scale-out behind a load balancer becomes feasible once the DB is moved off SQLite.
 - **Provider extensibility (implemented)** — new providers register against `IFlightProvider`. The aggregator has no compile-time coupling to any provider. Adding a third provider = one class + one `services.AddSingleton<IFlightProvider, ...>()` line in [InfrastructureServiceExtensions.cs](backend/src/SkyRoute.Infrastructure/Extensions/InfrastructureServiceExtensions.cs).
-- **Parallel fan-out + isolation (implemented)** — `FlightAggregator` calls all providers concurrently with `Task.WhenAll` and wraps each in a `try/catch` so one failing provider does not poison the response (covered by `FlightAggregatorTests.SearchAsync_WhenOneProviderFails_StillReturnsOtherResults`). Per-provider timeouts are a documented next step.
+- **Parallel fan-out + isolation (implemented)** — `FlightAggregator` calls all providers concurrently with `Task.WhenAll`, wraps each in a `try/catch` so one failing provider doesn't poison the response, and enforces a **5-second per-provider timeout** via a linked `CancellationTokenSource`. Caller cancellation still propagates correctly. Covered by three aggregator tests: union-of-results, one-provider-throws, one-provider-times-out, plus a caller-cancellation test.
 - **Caching opportunities (planned)** — `IMemoryCache` keyed by `(origin, destination, date, cabin, passengers)` with short TTL (~60 s) for repeated identical searches; replace with Redis for distributed deployments.
 - **Async / background opportunities (planned)** — booking confirmations could be emailed via a background queue (Hangfire / Hosted Service / Service Bus).
-- **Observability direction (planned)**:
-  - **Logs** — Serilog structured logs with request correlation IDs.
-  - **Metrics** — `System.Diagnostics.Metrics` for `flights.search.duration`, `flights.search.providerFailures`, `bookings.created`.
-  - **Tracing** — OpenTelemetry exporter for distributed tracing across providers.
+- **Observability**:
+  - **Logs (implemented)** — Serilog with `UseSerilogRequestLogging` produces a structured line per request (`HTTP {method} {path} responded {status} in {ms}` + `ClientIP`, `UserAgent`). Sink config lives in `appsettings.json` so swapping console for Seq, Elasticsearch, or a file is config-only. Sample output:
+    ```
+    [17:41:41 INF] HTTP GET /api/flights/search responded 200 in 55 ms
+    [17:41:41 INF] HTTP POST /api/bookings responded 201 in 38 ms
+    ```
+  - **Metrics (planned)** — `System.Diagnostics.Metrics` for `flights.search.duration`, `flights.search.providerFailures`, `bookings.created`.
+  - **Tracing (planned)** — OpenTelemetry exporter for distributed tracing across providers.
 
 ---
 
@@ -305,6 +324,168 @@ Even though the brief does not mandate auth, the API surface is hardened defensi
 | Booking reference returned                                         | `BookingsController` generates `SR-XXXXXX`, persists via EF Core; `confirmation-page.component.ts` displays it. |
 | Dynamic document: Passport (intl) vs National ID (domestic)        | `booking-page.component.ts` derives route type and swaps label + validator on each passenger row. |
 | Same-country detection                                             | Frontend compares airport countries loaded from `GET /api/airports`.              |
+
+---
+
+## Onboarding a real airline provider
+
+> The brief states *"the platform expects to onboard additional airline providers in the future."* That drove the entire backend layout: the system already discovers providers from DI at runtime, fans out to them in parallel, and isolates failures and slow responses behind a per-provider timeout. Onboarding a real provider — Amadeus, Sabre, an airline's own REST API — does not require touching `FlightAggregator`, controllers, validators, or the Angular client.
+
+### What the platform already gives a new provider for free
+
+| Concern | Where it's handled |
+|---|---|
+| Runtime registration & discovery | `IEnumerable<IFlightProvider>` from DI (visible at `GET /api/providers`) |
+| Parallel fan-out across providers | [`FlightAggregator.SearchAsync`](backend/src/SkyRoute.Infrastructure/Services/FlightAggregator.cs) (`Task.WhenAll`) |
+| Failure isolation (one provider erroring ≠ broken response) | `try/catch` per provider in the aggregator |
+| Per-provider timeout (5 s default, injectable) | Linked `CancellationTokenSource` in the aggregator |
+| Caller cancellation propagation | Re-throw on `ct.IsCancellationRequested` |
+| Logging | Serilog: every provider failure or timeout logged with `{ProviderId}` |
+| Pricing seam | Separate `IPricingStrategy` so the provider class isn't coupled to fare math |
+
+A new provider only needs to: do its HTTP call, map the response to `FlightOffer`, run base fares through its pricing strategy, and trust the aggregator with everything else.
+
+### Recipe — real HTTP-based provider (e.g. SkyJet)
+
+#### 1. Strongly-typed options
+
+`SkyRoute.Infrastructure/Providers/SkyJet/SkyJetOptions.cs`:
+
+```csharp
+public class SkyJetOptions
+{
+    public string BaseUrl { get; set; } = "";
+    public string ApiKey { get; set; } = "";
+    public TimeSpan Timeout { get; set; } = TimeSpan.FromSeconds(4);
+}
+```
+
+`appsettings.json`:
+
+```json
+{
+  "Providers": {
+    "SkyJet": {
+      "BaseUrl": "https://api.skyjet.example.com/v1",
+      "ApiKey": "REPLACE_ME",
+      "Timeout": "00:00:04"
+    }
+  }
+}
+```
+
+> Secrets in `appsettings.json` are for local development only. In real environments inject `SkyJet:ApiKey` from User Secrets, environment variables, or a vault.
+
+#### 2. Pricing strategy
+
+`SkyRoute.Infrastructure/Pricing/SkyJetPricingStrategy.cs`:
+
+```csharp
+public class SkyJetPricingStrategy : IPricingStrategy
+{
+    // e.g. base fare + 8% airport tax with a $39.99 floor
+    public decimal PriceFor(decimal baseFare) =>
+        Math.Max(Math.Round(baseFare * 1.08m, 2), 39.99m);
+}
+```
+
+#### 3. Provider implementation
+
+`SkyRoute.Infrastructure/Providers/SkyJet/SkyJetProvider.cs`:
+
+```csharp
+public class SkyJetProvider : IFlightProvider
+{
+    private readonly HttpClient _http;
+    private readonly SkyJetPricingStrategy _pricing;
+    private readonly ILogger<SkyJetProvider> _logger;
+
+    public string ProviderId => "SkyJet";
+
+    public SkyJetProvider(HttpClient http, SkyJetPricingStrategy pricing, ILogger<SkyJetProvider> logger)
+    {
+        _http = http;
+        _pricing = pricing;
+        _logger = logger;
+    }
+
+    public async Task<IReadOnlyList<FlightOffer>> SearchAsync(SearchRequest req, CancellationToken ct = default)
+    {
+        // Aggregator already supplies a linked CT with the per-provider timeout — just forward it.
+        using var resp = await _http.GetAsync(BuildSearchUrl(req), ct);
+
+        if (!resp.IsSuccessStatusCode)
+        {
+            _logger.LogWarning("SkyJet returned {Status} for {Origin}->{Dest}",
+                resp.StatusCode, req.OriginCode, req.DestinationCode);
+            return []; // Aggregator treats empty as "this provider had nothing to offer"
+        }
+
+        var payload = await resp.Content.ReadFromJsonAsync<SkyJetSearchResponse>(cancellationToken: ct);
+        return payload is null ? [] : payload.Flights.Select(f => Map(f, req)).ToList();
+    }
+
+    private FlightOffer Map(SkyJetFlightDto f, SearchRequest req)
+    {
+        var perPassenger = _pricing.PriceFor(f.BaseFare);
+        return new FlightOffer(
+            Id: $"SJ-{f.Id}",
+            Provider: ProviderId,
+            FlightNumber: f.FlightNumber,
+            OriginCode: req.OriginCode,
+            DestinationCode: req.DestinationCode,
+            DepartureTime: f.Departure,
+            ArrivalTime: f.Arrival,
+            DurationMinutes: (int)(f.Arrival - f.Departure).TotalMinutes,
+            CabinClass: req.CabinClass,
+            PricePerPassenger: perPassenger,
+            TotalPrice: Math.Round(perPassenger * req.Passengers, 2),
+            Passengers: req.Passengers);
+    }
+
+    private string BuildSearchUrl(SearchRequest r) =>
+        $"flights?origin={r.OriginCode}&destination={r.DestinationCode}" +
+        $"&date={r.DepartureDate:yyyy-MM-dd}&pax={r.Passengers}&cabin={Uri.EscapeDataString(r.CabinClass)}";
+
+    private record SkyJetSearchResponse(IReadOnlyList<SkyJetFlightDto> Flights);
+    private record SkyJetFlightDto(string Id, string FlightNumber, DateTimeOffset Departure, DateTimeOffset Arrival, decimal BaseFare);
+}
+```
+
+#### 4. Registration (one block)
+
+In [InfrastructureServiceExtensions.cs](backend/src/SkyRoute.Infrastructure/Extensions/InfrastructureServiceExtensions.cs):
+
+```csharp
+services.Configure<SkyJetOptions>(configuration.GetSection("Providers:SkyJet"));
+services.AddSingleton<SkyJetPricingStrategy>();
+
+services.AddHttpClient<IFlightProvider, SkyJetProvider>((sp, http) =>
+{
+    var opts = sp.GetRequiredService<IOptions<SkyJetOptions>>().Value;
+    http.BaseAddress = new Uri(opts.BaseUrl);
+    http.Timeout = opts.Timeout;
+    http.DefaultRequestHeaders.Add("X-API-Key", opts.ApiKey);
+});
+// Optional: chain Polly resilience handlers
+//   .AddStandardResilienceHandler(); // .NET 8 built-in retry + circuit breaker
+```
+
+That's the entire onboarding. After a restart:
+
+- `GET /api/providers` lists `SkyJet` alongside the others (proof the platform sees it).
+- `GET /api/flights/search` includes SkyJet's offers in the merged response.
+- A SkyJet outage or 5xx storm cannot cascade — the aggregator returns the other providers' results and Serilog records `Provider SkyJet timed out after 4000ms` or the underlying error. **Zero changes** to the controller, validator, frontend, or any other provider.
+
+### Pricing & resilience are seams too
+
+- **Replace pricing without touching the provider** — swap `SkyJetPricingStrategy` for a `SkyJetWithLoyaltyPricingStrategy` in DI; the provider class is unchanged.
+- **Tune the per-provider timeout** — `FlightAggregator` accepts an optional `TimeSpan perProviderTimeout` constructor argument (default 5 s). Wrap the registration in `services.AddSingleton<IFlightAggregator>(sp => new FlightAggregator(..., TimeSpan.FromSeconds(3)))` to override.
+- **Add retry / circuit breaker** — `.AddStandardResilienceHandler()` from `Microsoft.Extensions.Http.Resilience` (.NET 8) plugs into the typed `HttpClient` registration with one line.
+
+### How the existing mocks fit this picture
+
+`GlobalAirProvider` and `BudgetWingsProvider` deliberately keep things synchronous and deterministic so the demo is reproducible. They follow exactly the same `IFlightProvider` contract a real provider would — the only difference is "build offers in memory" instead of "call HTTP and map the response." That contract symmetry is why a real provider drops in without disturbing anything else.
 
 ---
 
@@ -354,15 +535,16 @@ npm start
 
 ### Demo script (45–60 min walkthrough)
 
-1. Open Swagger (`http://localhost:5080/swagger`), hit `GET /api/airports` to show the 8-airport catalogue across 4 countries.
-2. Open `http://localhost:4200`. Search **MAD → BCN, 2 pax, Economy**. Show results from both providers, highlight **total price** prominence vs per-passenger as secondary.
+1. Open Swagger (`http://localhost:5080/swagger`), hit `GET /api/airports` (8 airports / 4 countries) and `GET /api/providers` (proves the runtime provider list — extending this list = 3-line code change, see § *Adding a new airline provider*).
+2. Open `http://localhost:4200`. Search **MAD → BCN, 2 pax, Economy**. Show results from both providers, highlight **total price** prominence vs per-passenger as secondary. Spinner is held for ≥2 s by design so the loading state is visible even though the mock returns instantly.
 3. Use the sort dropdown — price ↑/↓, duration ↑, departure ↑. Note: **no network request** fires (open DevTools to prove it).
 4. Try **MAD → MAD** to show frontend-blocked error before any API call.
 5. Click **Book** on a MAD → BCN result → booking page shows **National ID** label + validator on every passenger row (2 forms).
 6. Go back, search **MAD → JFK**, click **Book** → booking page shows **Passport Number** label + validator.
 7. Submit a valid passport-format value → confirmation screen shows `SR-XXXXXX` reference + persisted passenger summary.
-8. (Optional) In Swagger, send a malformed `POST /api/flights/search` to demonstrate `ValidationProblemDetails`; stop the API to demonstrate the Angular interceptor's "Could not reach API" message.
-9. Walk through `IFlightProvider`, `IPricingStrategy`, `FlightAggregator`, `EfCoreBookingRepository` to demonstrate SOLID + extensibility.
+8. (Optional) In Swagger, send a malformed search query to demonstrate `ValidationProblemDetails`; stop the API to demonstrate the Angular interceptor's "Could not reach API" message.
+9. Show the API console — every request prints `HTTP {method} {path} responded {status} in {ms}` via Serilog (`app.UseSerilogRequestLogging`). Useful when tracing request flow during the walkthrough.
+10. Walk through `IFlightProvider`, `IPricingStrategy`, `FlightAggregator`, `EfCoreBookingRepository` to demonstrate SOLID + extensibility, referring back to the `/api/providers` output as the runtime proof.
 
 ### Tests
 
@@ -398,16 +580,16 @@ cd frontend && npx ng test --watch=false --browsers=ChromeHeadless
 - No internationalisation (English only).
 - Accessibility pass is best-effort; no formal WCAG audit.
 - No CI pipeline.
-- Logging uses default `ILogger`; no structured correlation IDs yet.
+- Serilog is wired but ships console-only by default; production deployments would add a structured sink (Seq, Elasticsearch, etc.) via `appsettings.{Environment}.json`.
 
 ### What I would do next
 
-1. Add Serilog with request correlation IDs and PII-safe scopes; ship structured logs.
+1. Add Serilog correlation IDs (W3C trace-id) and a structured sink for production (Seq / Elasticsearch / Loki).
 2. Add JWT auth + per-user booking scoping (booking endpoint becomes user-scoped).
 3. Swap SQLite for Postgres in production (`UseNpgsql`); keep SQLite for local dev.
 4. Add `IMemoryCache` (60 s TTL) keyed by search inputs; replace with Redis when distributed.
-5. Add per-provider timeouts (`CancellationTokenSource.CreateLinkedTokenSource` + `TimeSpan`) inside `FlightAggregator`.
-6. Add OpenTelemetry traces + metrics (`flights.search.duration`, `bookings.created`).
+5. Add Polly-style resilience (retry, circuit breaker) on each typed `HttpClient` for real providers using `Microsoft.Extensions.Http.Resilience`.
+6. Add OpenTelemetry traces + metrics (`flights.search.duration`, `flights.search.providerFailures`, `bookings.created`).
 7. Add Playwright e2e: search → sort → book domestic; search → book international.
 8. Containerise via Docker Compose (api + web + Postgres).
 9. Replace deterministic mocks with a recorded-fixture replay layer that simulates latency and intermittent provider failures.

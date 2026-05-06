@@ -45,6 +45,48 @@ public class FlightAggregatorTests
         result[0].Should().Be(healthyOffer);
     }
 
+    [Fact]
+    public async Task SearchAsync_WhenProviderExceedsTimeout_SkipsItAndReturnsOthers()
+    {
+        var request = BuildRequest();
+        var healthyOffer = BuildOffer("OK-1", "ProviderHealthy");
+        var providers = new IFlightProvider[]
+        {
+            new StubFlightProvider("healthy", [healthyOffer]),
+            new SlowFlightProvider("slow", TimeSpan.FromSeconds(2)),
+        };
+        var sut = new FlightAggregator(
+            providers,
+            NullLogger<FlightAggregator>.Instance,
+            perProviderTimeout: TimeSpan.FromMilliseconds(50));
+
+        var result = await sut.SearchAsync(request);
+
+        result.Should().ContainSingle();
+        result[0].Should().Be(healthyOffer);
+    }
+
+    [Fact]
+    public async Task SearchAsync_WhenCallerCancels_PropagatesCancellation()
+    {
+        var request = BuildRequest();
+        var providers = new IFlightProvider[]
+        {
+            new SlowFlightProvider("slow", TimeSpan.FromSeconds(5)),
+        };
+        var sut = new FlightAggregator(
+            providers,
+            NullLogger<FlightAggregator>.Instance,
+            perProviderTimeout: TimeSpan.FromSeconds(10));
+
+        using var cts = new CancellationTokenSource();
+        cts.CancelAfter(TimeSpan.FromMilliseconds(50));
+
+        var act = async () => await sut.SearchAsync(request, cts.Token);
+
+        await act.Should().ThrowAsync<OperationCanceledException>();
+    }
+
     private static SearchRequest BuildRequest() =>
         new("MAD", "JFK", new DateOnly(2026, 5, 10), 1, "Economy");
 
@@ -79,5 +121,16 @@ public class FlightAggregatorTests
 
         public Task<IReadOnlyList<FlightOffer>> SearchAsync(SearchRequest request, CancellationToken ct = default) =>
             throw new InvalidOperationException("Simulated provider failure.");
+    }
+
+    private sealed class SlowFlightProvider(string providerId, TimeSpan delay) : IFlightProvider
+    {
+        public string ProviderId { get; } = providerId;
+
+        public async Task<IReadOnlyList<FlightOffer>> SearchAsync(SearchRequest request, CancellationToken ct = default)
+        {
+            await Task.Delay(delay, ct);
+            return [];
+        }
     }
 }
