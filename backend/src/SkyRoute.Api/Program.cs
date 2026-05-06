@@ -15,6 +15,13 @@ builder.Services.AddCors(opt => opt.AddDefaultPolicy(p =>
      .AllowAnyHeader()
      .AllowAnyMethod()));
 
+// Resolve the SQLite file to <repo>/backend/data/skyroute.db so the source tree
+// (backend/src/SkyRoute.Api) stays clean. ContentRootPath = the API project folder.
+var dataDir = Path.GetFullPath(Path.Combine(builder.Environment.ContentRootPath, "..", "..", "data"));
+Directory.CreateDirectory(dataDir);
+var dbPath = Path.Combine(dataDir, "skyroute.db");
+builder.Configuration["ConnectionStrings:Default"] = $"Data Source={dbPath}";
+
 builder.Services.AddInfrastructure(builder.Configuration);
 
 builder.Services.AddScoped<IValidator<SearchRequestDto>, SearchRequestValidator>();

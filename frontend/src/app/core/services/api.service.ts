@@ -1,5 +1,5 @@
 import { Injectable, inject } from '@angular/core';
-import { HttpClient } from '@angular/common/http';
+import { HttpClient, HttpParams } from '@angular/common/http';
 import { environment } from '../../../environments/environment';
 import { Airport } from '../models/airport.model';
 import { SearchRequest, SearchResponse } from '../models/flight.model';
@@ -15,7 +15,13 @@ export class ApiService {
   }
 
   searchFlights(request: SearchRequest) {
-    return this.http.post<SearchResponse>(`${this.base}/flights/search`, request);
+    const params = new HttpParams()
+      .set('originCode', request.originCode)
+      .set('destinationCode', request.destinationCode)
+      .set('departureDate', request.departureDate)
+      .set('passengers', request.passengers.toString())
+      .set('cabinClass', request.cabinClass);
+    return this.http.get<SearchResponse>(`${this.base}/flights/search`, { params });
   }
 
   createBooking(request: BookingRequest) {

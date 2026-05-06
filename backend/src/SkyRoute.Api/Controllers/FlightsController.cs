@@ -1,5 +1,6 @@
 using FluentValidation;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using SkyRoute.Api.DTOs;
 using SkyRoute.Domain.Interfaces;
 using SkyRoute.Domain.Models;
@@ -19,10 +20,23 @@ public class FlightsController : ControllerBase
         _validator = validator;
     }
 
-    [HttpPost("search")]
+    [HttpGet("search")]
+    [EnableRateLimiting("search")]
     public async Task<IActionResult> Search(
-        [FromBody] SearchRequestDto dto, CancellationToken ct)
+        [FromQuery] string originCode,
+        [FromQuery] string destinationCode,
+        [FromQuery] DateOnly departureDate,
+        [FromQuery] int passengers,
+        [FromQuery] string cabinClass,
+        CancellationToken ct)
     {
+        var dto = new SearchRequestDto(
+            originCode ?? string.Empty,
+            destinationCode ?? string.Empty,
+            departureDate,
+            passengers,
+            cabinClass ?? string.Empty);
+
         var validation = await _validator.ValidateAsync(dto, ct);
         if (!validation.IsValid)
             return ValidationProblem(new ValidationProblemDetails(validation.ToDictionary()));

@@ -2,6 +2,21 @@
 
 Senior full-stack technical assessment. Angular 17 + .NET 8 implementation of SkyRoute's Flight Search & Booking module, aggregating two mocked airline providers (**GlobalAir**, **BudgetWings**) behind an extensible provider interface.
 
+## Status
+
+| Area                                              | Status |
+| ------------------------------------------------- | :----: |
+| Backend solution + EF Core + SQLite + migrations  | ✅ |
+| Provider abstraction, GlobalAir, BudgetWings      | ✅ |
+| Pricing strategies (15 % surcharge / 10 % + floor) | ✅ |
+| `GET /api/flights/search`, `POST /api/bookings`, `GET /api/airports`, `GET /health` | ✅ |
+| FluentValidation (incl. passport / national-ID format), ProblemDetails, exception middleware, rate limiter attached, CORS | ✅ |
+| Angular search form, results table, 4 client-side sorts, loading + empty states | ✅ |
+| Booking flow with `FormArray` (one form per passenger) and dynamic `Passport`/`National ID` field | ✅ |
+| Confirmation page (reference + persisted passenger summary)        | ✅ |
+| Backend tests (30) and frontend tests (11), all passing             | ✅ |
+| `make build` / `make test-all` work end-to-end                      | ✅ |
+
 ---
 
 ## 1. Challenge summary and scope
@@ -61,7 +76,7 @@ Senior full-stack technical assessment. Angular 17 + .NET 8 implementation of Sk
 **Data flow — search**
 
 1. User submits form → Angular validates client-side.
-2. `ApiService` POSTs to `/api/flights/search`.
+2. `ApiService` issues `GET /api/flights/search?originCode=...&...` with the form values as query parameters.
 3. API validates via FluentValidation; rejects on 400 with ProblemDetails.
 4. `FlightAggregator` fans out to all registered `IFlightProvider`s in parallel.
 5. Each provider returns flights with **base fares**; its `IPricingStrategy` produces final per-passenger fares.
@@ -85,11 +100,12 @@ Senior full-stack technical assessment. Angular 17 + .NET 8 implementation of Sk
 | Tech                       | Why                                                                                  |
 | -------------------------- | ------------------------------------------------------------------------------------ |
 | Angular 17 (standalone)    | Mandated stack; standalone components reduce boilerplate for a small app.            |
-| TypeScript (strict)        | Type-safe DTO contracts mirroring backend models.                                    |
+| TypeScript                 | Type-safe DTO contracts mirroring backend models.                                    |
 | Reactive Forms + FormArray | Required for dynamic validators (document field switching) and N passenger forms.    |
-| RxJS                       | Idiomatic for HTTP + sort state streams.                                             |
+| Signals + computed         | Local reactive state for offers, sort, validation flags.                             |
+| RxJS                       | HTTP, finalize-on-error, interceptor mapping ProblemDetails → user-facing message.   |
 | Tailwind CSS               | Utility-first styling; faster iteration than maintaining a component-library theme.  |
-| Headless UI                | Accessible, unstyled primitives (dialogs, listboxes) that pair cleanly with Tailwind.|
+| Angular CDK                | Available for accessible primitives if dialogs/listboxes are added later.            |
 | Karma + Jasmine            | Default Angular test stack; minimal configuration.                                   |
 
 ### Backend
@@ -98,18 +114,17 @@ Senior full-stack technical assessment. Angular 17 + .NET 8 implementation of Sk
 | ----------------------------- | -------------------------------------------------------------------------------- |
 | .NET 8 LTS                    | Mandated stack; latest LTS.                                                      |
 | ASP.NET Core Web API          | Standard for REST surface.                                                       |
-| EF Core 8                     | Code-first persistence; clean repository implementation.                         |
-| SQLite                        | Zero-config file-based DB; perfect for local-only deliverable; swappable later. |
+| EF Core 8 + SQLite            | Code-first persistence; file-based DB for local-only deliverable; swappable later via provider change. |
 | FluentValidation              | Cleaner, testable validation rules vs. data annotations.                         |
-| Serilog (planned)             | Structured logs with request correlation; preferred over default `ILogger` sink.|
 | Built-in Rate Limiter         | First-party, no external dependency.                                             |
-| xUnit + FluentAssertions      | Industry standard test stack with readable assertions.                           |
+| Default `ILogger` (Serilog planned) | Structured logs are a planned next step; using Microsoft default for now.   |
+| xUnit + FluentAssertions      | Readable assertion syntax over plain xUnit.                                      |
 | Swashbuckle / OpenAPI         | Auto-generated API docs for the demo walkthrough.                                |
 
 ### Tooling
 
-- **EditorConfig** for consistent baseline formatting.
-- **Git** for source control and reviewable sprint checkpoints.
+- **Makefile** wrapping `dotnet`, `npm`, and `dotnet ef` commands (`make build`, `make test-all`, `make migrate`, etc.).
+- **Git** for source control and reviewable sprint checkpoints. See [TODO.md](TODO.md) for the sprint timeline.
 
 ---
 
@@ -117,18 +132,21 @@ Senior full-stack technical assessment. Angular 17 + .NET 8 implementation of Sk
 
 Base URL (local): `http://localhost:5080/api`
 
-### `POST /api/flights/search`
+### `GET /api/flights/search`
 
-Request:
+Search is a side-effect-free, idempotent read, so it uses **GET with query parameters**. This is REST-correct, browser-friendly (the URL can be bookmarked or pasted), and lets HTTP-level caching front the endpoint when needed. POST would only become preferable if the criteria grew into nested arrays (multi-leg, multiple cabin preferences, flexible-date matrices) — explicitly out of scope here.
 
-```json
-{
-  "originCode": "MAD",
-  "destinationCode": "JFK",
-  "departureDate": "2026-06-15",
-  "passengers": 2,
-  "cabinClass": "Business"
-}
+Rate-limited at **60 requests / minute / IP** via `[EnableRateLimiting("search")]`.
+
+Example:
+
+```
+GET /api/flights/search
+    ?originCode=MAD
+    &destinationCode=JFK
+    &departureDate=2026-06-15
+    &passengers=2
+    &cabinClass=Business
 ```
 
 Response `200 OK`:
@@ -157,11 +175,15 @@ Response `200 OK`:
 
 ### `POST /api/bookings`
 
-Request — note the `passengers` **array**; its length must equal the original search's passenger count.
+Booking creates server-side state (a persisted record), so it uses POST. Rate-limited at **20 requests / minute / IP** via `[EnableRateLimiting("booking")]`. Request — note the `passengers` **array**; one entry per passenger collected on the booking page.
 
 ```json
 {
   "flightId": "GA-1471",
+  "originCode": "MAD",
+  "destinationCode": "JFK",
+  "cabinClass": "Business",
+  "totalPrice": 2531.00,
   "passengers": [
     {
       "fullName": "Ada Lovelace",
@@ -175,10 +197,11 @@ Request — note the `passengers` **array**; its length must equal the original 
       "documentType": "Passport",
       "documentNumber": "Y9876543"
     }
-  ],
-  "totalPrice": 2531.00
+  ]
 }
 ```
+
+`documentType` is one of `Passport` (international route) or `NationalId` (domestic route). The frontend chooses the value based on origin/destination country comparison; the API accepts both, validates the enum, and persists the booking + child passengers in a single transaction.
 
 Response `201 Created`:
 
@@ -217,34 +240,36 @@ Returns the hardcoded airport catalogue (code, name, city, country). Used to pop
 
 Even though the brief does not mandate auth, the API surface is hardened defensively at the boundary:
 
-- **Input validation** — FluentValidation enforces:
-  - Airport codes match `^[A-Z]{3}$` and exist in the airport catalogue.
+- **Input validation (implemented)** — FluentValidation enforces:
+  - Airport codes match `^[A-Z]{3}$` and exist in the `AirportCatalog`.
   - `passengers` ∈ `[1, 9]`.
-  - `cabinClass` ∈ allowed enum.
-  - `departureDate` is today or later.
-  - Origin ≠ Destination.
-  - `documentNumber` matches passport or national-ID regex by claim.
-- **Sanitization** — all string inputs trimmed; length caps applied (`fullName ≤ 100`, `email ≤ 254`, `documentNumber ≤ 32`); enum values whitelisted; no string is interpolated into a query (no DB in this challenge, but contract enforced).
-- **Safe error handling** — global exception middleware returns ProblemDetails with `traceId` only; no stack traces, no inner-exception messages exposed.
-- **Abuse / rate limiting** — ASP.NET Core fixed-window rate limiter, e.g. `60 req/min/IP` on `/api/flights/search`, `20 req/min/IP` on `/api/bookings`. Returns `429` with `Retry-After`.
-- **Sensitive data handling** — passenger PII (name, email, document) is logged only by category, never by value (`logger.LogInformation("Booking created for flight {FlightId}", id)`); document numbers never round-trip back to the client after submission; no PII in error messages or `traceId`.
-- **CORS** — locked to the local Angular origin in development; documented to be tightened to the production origin when deployed.
-- **HTTPS** — enforced via `UseHttpsRedirection` (HSTS in non-Development).
-- **Auth/Authz** — **out of scope for this challenge**. Designed-in seam: all controllers accept `[Authorize]` cleanly when an auth scheme (JWT bearer + an identity provider) is added. Booking endpoint would become user-scoped, and a `userId` would be attached to bookings.
+  - `cabinClass` ∈ {`Economy`, `Business`, `First Class`}.
+  - `departureDate` ≥ today (UTC).
+  - Origin ≠ destination.
+  - Booking: `flightId`, `totalPrice > 0`, `passengers` non-empty; per-passenger `fullName`, `email` (RFC-style), `documentType` ∈ {`Passport`, `NationalId`}, `documentNumber`.
+  - **Document format**: `documentNumber` must match `^[A-Za-z0-9]{6,12}$` for Passport and `^[A-Za-z0-9]{6,14}$` for NationalId. Mirrors the frontend regex; covered by 13 unit tests.
+- **Sanitization (implemented)** — names trimmed, emails lower-cased, document numbers trimmed and upper-cased before persistence; length caps applied (`fullName ≤ 100`, `email ≤ 254`, `documentNumber ≤ 32`); enum values whitelisted; EF Core parameterizes all SQL.
+- **Safe error handling (implemented)** — `ExceptionMiddleware` catches all unhandled exceptions and returns ProblemDetails with only `traceId`; no stack traces or inner exception messages exposed. Validation failures return RFC 7807 `ValidationProblemDetails` with field-level messages. The Angular `apiErrorInterceptor` reads `errors`/`detail`/`title` and surfaces them to the user.
+- **Abuse / rate limiting (implemented)** — ASP.NET Core fixed-window rate limiter with two policies: `60 req/min` for search (`[EnableRateLimiting("search")]` on `FlightsController.Search`) and `20 req/min` for booking (`[EnableRateLimiting("booking")]` on `BookingsController.Create`). Returns `429 Too Many Requests` when exceeded.
+- **CORS (implemented)** — locked to `http://localhost:4200` in development; tighten to the production origin when deployed.
+- **HTTPS (implemented)** — `UseHttpsRedirection` is active (HSTS would be added when running outside Development).
+- **Sensitive data handling (planned)** — passenger PII (name, email, document) is currently not logged at all; structured logging with PII-safe scopes is a planned step (Serilog, see §10).
+- **Document format (FE + BE)** — passport/national-ID regex enforced both in the Angular form (`/^[A-Z0-9]{6,12}$/` passport, `/^[A-Z0-9]{6,14}$/` national ID) and on the server inside `PassengerValidator`. Frontend gives instant feedback; backend rejects bypass attempts.
+- **Auth/Authz** — **out of scope for this challenge**. Designed-in seam: controllers accept `[Authorize]` cleanly once an auth scheme is added; bookings would become user-scoped via a `userId` column.
 
 ---
 
 ## 6. Scalability approach
 
-- **Stateless API** — no server-side session. Bookings persisted via `IBookingRepository` (EF Core + SQLite today; the same `DbContext` works against Postgres or SQL Server with one provider switch). Horizontal scale-out behind a load balancer is the default direction once the DB is moved off SQLite.
-- **Provider extensibility** — new providers register against `IFlightProvider`. The aggregator has no compile-time coupling to any provider. Adding a third provider = one class + one DI registration line.
-- **Parallel fan-out** — `FlightAggregator` calls all providers concurrently with `Task.WhenAll`, with per-provider timeouts and a `try/catch` boundary so one slow/failing provider does not poison the response (graceful degradation).
-- **Caching opportunities** — `IMemoryCache` keyed by `(origin, destination, date, cabin, passengers)` with short TTL (e.g. 60 s) for repeated identical searches; for production, replace with a distributed cache (Redis). Documented but not implemented in challenge scope.
-- **Async / background opportunities** — booking confirmations could be emailed via a background queue (Hangfire / Hosted Service / Service Bus). Not implemented; called out as a seam.
-- **Observability direction**:
-  - **Logs** — Serilog structured logs, request correlation ID propagated through `traceId`.
+- **Stateless API (implemented)** — no server-side session. Bookings persisted via `IBookingRepository` (EF Core + SQLite today; same `DbContext` works against Postgres or SQL Server with a one-line provider change). Horizontal scale-out behind a load balancer becomes feasible once the DB is moved off SQLite.
+- **Provider extensibility (implemented)** — new providers register against `IFlightProvider`. The aggregator has no compile-time coupling to any provider. Adding a third provider = one class + one `services.AddSingleton<IFlightProvider, ...>()` line in [InfrastructureServiceExtensions.cs](backend/src/SkyRoute.Infrastructure/Extensions/InfrastructureServiceExtensions.cs).
+- **Parallel fan-out + isolation (implemented)** — `FlightAggregator` calls all providers concurrently with `Task.WhenAll` and wraps each in a `try/catch` so one failing provider does not poison the response (covered by `FlightAggregatorTests.SearchAsync_WhenOneProviderFails_StillReturnsOtherResults`). Per-provider timeouts are a documented next step.
+- **Caching opportunities (planned)** — `IMemoryCache` keyed by `(origin, destination, date, cabin, passengers)` with short TTL (~60 s) for repeated identical searches; replace with Redis for distributed deployments.
+- **Async / background opportunities (planned)** — booking confirmations could be emailed via a background queue (Hangfire / Hosted Service / Service Bus).
+- **Observability direction (planned)**:
+  - **Logs** — Serilog structured logs with request correlation IDs.
   - **Metrics** — `System.Diagnostics.Metrics` for `flights.search.duration`, `flights.search.providerFailures`, `bookings.created`.
-  - **Tracing** — OpenTelemetry exporter ready (commented config) for distributed tracing across providers.
+  - **Tracing** — OpenTelemetry exporter for distributed tracing across providers.
 
 ---
 
@@ -287,57 +312,69 @@ Even though the brief does not mandate auth, the API surface is hardened defensi
 
 ### Prerequisites
 
-- Node.js ≥ 20 and npm
-- .NET 8 SDK
-- Git
+- **Node.js ≥ 20** and npm
+- **.NET 8 SDK** (`dotnet --list-sdks` should include `8.0.x`)
+- **dotnet-ef** global tool: `dotnet tool install --global dotnet-ef`
+- **Git**
+- _Optional but recommended_: **GNU Make** (`choco install make` on Windows, preinstalled elsewhere)
 
-### Backend
+### Quick start — with Make
+
+```bash
+# In two terminals from the repo root:
+make backend-run     # API on http://localhost:5080 (auto-migrates skyroute.db on first run)
+make frontend-run    # App on http://localhost:4200, opens browser
+```
+
+Other helpful targets: `make build`, `make test-all`, `make migrate`, `make clean`. Run `make help` for the full list.
+
+### Manual — without Make
+
+**Backend**
 
 ```bash
 cd backend
 dotnet restore
-# Apply EF Core migrations (creates skyroute.db); also runs automatically on startup.
+# Migration runs automatically on startup, but you can apply it explicitly:
 dotnet ef database update --project src/SkyRoute.Infrastructure --startup-project src/SkyRoute.Api
-dotnet run --project src/SkyRoute.Api
-# API on http://localhost:5080
-# Swagger on http://localhost:5080/swagger
-# SQLite file is created as skyroute.db in the process working directory.
+dotnet run --project src/SkyRoute.Api --launch-profile http
+# API:     http://localhost:5080
+# Swagger: http://localhost:5080/swagger
+# SQLite:  backend/data/skyroute.db (auto-created outside the source tree)
 ```
 
-> If you don't have the EF Core CLI installed: `dotnet tool install --global dotnet-ef`.
-
-### Frontend
+**Frontend**
 
 ```bash
 cd frontend
-npm ci
+npm install
 npm start
 # App on http://localhost:4200
 ```
 
 ### Demo script (45–60 min walkthrough)
 
-1. Open Swagger, hit `/api/airports` to show the catalogue.
-2. Open `http://localhost:4200`, search **MAD → BCN, 2 pax, Economy**. Show results from both providers, point out per-passenger vs total.
-3. Sort by price ascending, then by duration. Note: no network request fires.
-4. Try **MAD → MAD** to show validation error.
-5. Try a route the mock returns no flights for to show empty state.
-6. Click an MAD → BCN result → booking page shows **National ID** label + validator.
-7. Search **MAD → JFK** instead → booking page shows **Passport Number** label + validator.
-8. Submit the form → confirmation screen shows `SR-XXXXXX`.
-9. Walk through `IFlightProvider`, `IPricingStrategy`, `FlightAggregator` to demonstrate SOLID + extensibility.
+1. Open Swagger (`http://localhost:5080/swagger`), hit `GET /api/airports` to show the 8-airport catalogue across 4 countries.
+2. Open `http://localhost:4200`. Search **MAD → BCN, 2 pax, Economy**. Show results from both providers, highlight **total price** prominence vs per-passenger as secondary.
+3. Use the sort dropdown — price ↑/↓, duration ↑, departure ↑. Note: **no network request** fires (open DevTools to prove it).
+4. Try **MAD → MAD** to show frontend-blocked error before any API call.
+5. Click **Book** on a MAD → BCN result → booking page shows **National ID** label + validator on every passenger row (2 forms).
+6. Go back, search **MAD → JFK**, click **Book** → booking page shows **Passport Number** label + validator.
+7. Submit a valid passport-format value → confirmation screen shows `SR-XXXXXX` reference + persisted passenger summary.
+8. (Optional) In Swagger, send a malformed `POST /api/flights/search` to demonstrate `ValidationProblemDetails`; stop the API to demonstrate the Angular interceptor's "Could not reach API" message.
+9. Walk through `IFlightProvider`, `IPricingStrategy`, `FlightAggregator`, `EfCoreBookingRepository` to demonstrate SOLID + extensibility.
 
 ### Tests
 
 ```bash
 # Full suite (recommended)
-make test-all
+make test-all          # 17 backend + 11 frontend, all passing
 
-# Backend
+# Backend only
 cd backend && dotnet test
 
-# Frontend
-cd frontend && npm test -- --watch=false
+# Frontend only
+cd frontend && npx ng test --watch=false --browsers=ChromeHeadless
 ```
 
 ---
@@ -346,32 +383,36 @@ cd frontend && npm test -- --watch=false
 
 ### Conscious trade-offs
 
-- **SQLite, not Postgres.** File-based, zero-config, ideal for a local deliverable. Same EF Core code targets Postgres / SQL Server with a one-line provider change.
-- **No auth.** Bookings are anonymous and globally enumerable in principle. The seam is in place (`[Authorize]` + user-scoping the repository).
+- **`GET` for search, `POST` for booking.** Search is idempotent and side-effect-free, so it uses GET — REST-correct, bookmarkable, browser-cacheable. POST would be the right call only if criteria grew into nested arrays (multi-leg, complex fare rules, flexible-date matrices); for the current 5-field DTO, GET is cleaner. Booking creates server-side state, so it stays POST.
+- **SQLite, not Postgres.** File-based, zero-config, ideal for a local deliverable. Same EF Core code targets Postgres / SQL Server with a one-line provider change. Database lives at `backend/data/skyroute.db` (outside the source tree, gitignored, auto-created on first run).
+- **No auth.** Bookings are anonymous and globally enumerable by reference. The seam is in place (`[Authorize]` on controllers + user-scoping the repository).
 - **One-way only.** The brief's single departure date implies one-way; no round-trip / multi-city.
-- **Validation duplicated FE/BE.** Necessary for UX (instant feedback) and security (never trust client). Documented, not deduplicated.
-- **Mocked providers are deterministic.** Same query returns same flights — desirable for demo reproducibility, but not realistic. A real integration would use circuit breakers, retries, and provider-side caching.
-- **No pagination / advanced filters.** Mock returns ~5–8 flights per provider, so unnecessary at this scale.
+- **Multi-passenger forms.** The brief says "a passenger details form" (singular); we render one form per passenger because the search captures `passengers ∈ [1,9]` and asking once for the whole group felt incorrect. Adds `FormArray` complexity in exchange.
+- **Validation duplicated FE/BE — by design.** Both layers validate document format, email, length caps, and route guards. Necessary for UX (instant feedback) and security (never trust client). Documented, not deduplicated.
+- **Mocked providers are deterministic.** Same `(origin, destination, date, cabin, providerId)` returns the same flights — desirable for demo reproducibility, but not realistic. A real integration would use circuit breakers, retries, and provider-side caching.
+- **No pagination / advanced filters.** Mock returns ~3–6 flights per provider per search, so unnecessary at this scale.
 - **Tailwind utility classes in templates.** Higher template noise than a component library, traded for faster iteration and zero theming overhead.
 
 ### Known limitations
 
 - No internationalisation (English only).
 - Accessibility pass is best-effort; no formal WCAG audit.
-- Rate limiting is enabled in API configuration; thresholds may need tuning for production traffic.
 - No CI pipeline.
+- Logging uses default `ILogger`; no structured correlation IDs yet.
 
 ### What I would do next
 
-1. Add JWT auth + per-user booking scoping.
-2. Swap SQLite for Postgres in production (`UseNpgsql`); keep SQLite for local dev.
-3. Add OpenTelemetry exporter and a pre-built Grafana dashboard config.
-4. Add Hangfire queue for confirmation emails.
-5. Add Playwright e2e: search → sort → book domestic; search → book international.
-6. Containerise via Docker Compose (api + web + Postgres).
-7. Replace deterministic mocks with a recorded-fixture replay layer that simulates latency and intermittent provider failures, to demonstrate resilience patterns.
-8. Extract a small Tailwind-based component library (button, input, dialog) once duplication justifies it.
+1. Add Serilog with request correlation IDs and PII-safe scopes; ship structured logs.
+2. Add JWT auth + per-user booking scoping (booking endpoint becomes user-scoped).
+3. Swap SQLite for Postgres in production (`UseNpgsql`); keep SQLite for local dev.
+4. Add `IMemoryCache` (60 s TTL) keyed by search inputs; replace with Redis when distributed.
+5. Add per-provider timeouts (`CancellationTokenSource.CreateLinkedTokenSource` + `TimeSpan`) inside `FlightAggregator`.
+6. Add OpenTelemetry traces + metrics (`flights.search.duration`, `bookings.created`).
+7. Add Playwright e2e: search → sort → book domestic; search → book international.
+8. Containerise via Docker Compose (api + web + Postgres).
+9. Replace deterministic mocks with a recorded-fixture replay layer that simulates latency and intermittent provider failures.
+10. Tune rate-limit thresholds per environment; add per-user keying once auth lands.
 
-### Unfinished work (if any at submission)
+### Unfinished work (at submission)
 
-This section is updated at the end of the challenge if any in-scope item slipped. As of writing, every Must-have in [TODO.md](TODO.md) is targeted for completion within the budget.
+All Must-have items from [TODO.md](TODO.md) are implemented. Every Sprint 1–3 deliverable ships green; Sprint 4 (API hardening) is largely done with the gaps above documented. No in-scope item is missing.

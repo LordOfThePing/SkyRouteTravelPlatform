@@ -1,5 +1,6 @@
 using FluentValidation;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using SkyRoute.Api.DTOs;
 using SkyRoute.Domain.Entities;
 using SkyRoute.Domain.Interfaces;
@@ -20,6 +21,7 @@ public class BookingsController : ControllerBase
     }
 
     [HttpPost]
+    [EnableRateLimiting("booking")]
     public async Task<IActionResult> Create(
         [FromBody] BookingRequestDto dto, CancellationToken ct)
     {
