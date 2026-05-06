@@ -77,9 +77,23 @@ describe('SearchPageComponent', () => {
     expect(component.sortedOffers().map(o => o.id)).toEqual(['2', '1']);
   });
 
+  it('sorts offers by total price ascending', () => {
+    component.offers.set(offersFixture);
+    component.onSortChange('price-asc');
+
+    expect(component.sortedOffers().map(o => o.id)).toEqual(['1', '2']);
+  });
+
   it('sorts offers by duration ascending', () => {
     component.offers.set(offersFixture);
     component.onSortChange('duration-asc');
+
+    expect(component.sortedOffers().map(o => o.id)).toEqual(['2', '1']);
+  });
+
+  it('sorts offers by departure time ascending', () => {
+    component.offers.set(offersFixture);
+    component.onSortChange('departure-asc');
 
     expect(component.sortedOffers().map(o => o.id)).toEqual(['2', '1']);
   });

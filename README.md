@@ -25,7 +25,7 @@ Senior full-stack technical assessment. Angular 17 + .NET 8 implementation of Sk
 
 - Authentication / user accounts (documented as next step).
 - Real airline integrations.
-- Persistence beyond in-memory store.
+- Persistence beyond local SQLite storage.
 - Cloud deployment and CI/CD.
 - Payment processing.
 - Round-trip / multi-city itineraries (one-way only — brief implies single departure date).
@@ -39,14 +39,14 @@ Senior full-stack technical assessment. Angular 17 + .NET 8 implementation of Sk
 │   Angular 17 SPA        │ ──────────────────▶ │   ASP.NET Core 8 Web API          │
 │   (standalone comps,    │                     │   ┌─────────────────────────────┐ │
 │    Reactive Forms,      │ ◀────────────────── │   │  Controllers / Minimal APIs │ │
-│    RxJS, Material)      │     ProblemDetails  │   ├─────────────────────────────┤ │
+│    RxJS, Tailwind CSS)  │     ProblemDetails  │   ├─────────────────────────────┤ │
 └─────────────────────────┘                     │   │  Application services       │ │
         │                                       │   │  • FlightAggregator         │ │
-        │                                       │   │  • BookingService           │ │
+        │                                       │   │  • Booking API flow         │ │
         │ Routes:                               │   ├─────────────────────────────┤ │
         │ /search   → SearchPage                │   │  Domain                     │ │
         │ /booking  → BookingPage               │   │  • IFlightProvider          │ │
-        │ /confirm  → ConfirmationPage          │   │  • Pricing strategies       │ │
+        │ /confirmation → ConfirmationPage      │   │  • Pricing strategies       │ │
         │                                       │   ├─────────────────────────────┤ │
         │                                       │   │  Infrastructure             │ │
         │                                       │   │  • GlobalAirProvider (mock) │ │
@@ -61,7 +61,7 @@ Senior full-stack technical assessment. Angular 17 + .NET 8 implementation of Sk
 **Data flow — search**
 
 1. User submits form → Angular validates client-side.
-2. `FlightSearchService` POSTs to `/api/flights/search`.
+2. `ApiService` POSTs to `/api/flights/search`.
 3. API validates via FluentValidation; rejects on 400 with ProblemDetails.
 4. `FlightAggregator` fans out to all registered `IFlightProvider`s in parallel.
 5. Each provider returns flights with **base fares**; its `IPricingStrategy` produces final per-passenger fares.
@@ -73,7 +73,7 @@ Senior full-stack technical assessment. Angular 17 + .NET 8 implementation of Sk
 1. User selects a flight → Angular passes flight model via router state to `/booking`.
 2. Booking page derives `isInternational` from `originAirport.country !== destinationAirport.country`.
 3. Form renders a `FormArray` of `FormGroup`s — one per passenger from the search — and swaps each row's document label and validator dynamically.
-4. POST `/api/bookings` → `BookingService` validates the flight reference and passenger count, persists `Booking` + child `Passenger` rows via EF Core into `skyroute.db`, returns `{ bookingReference: "SR-XXXXXX" }`.
+4. POST `/api/bookings` → API validates payload, persists `Booking` + child `Passenger` rows via EF Core into SQLite, returns `{ bookingReference: "SR-XXXXXX" }`.
 5. Confirmation page displays the reference and the persisted passenger list.
 
 ---
@@ -108,8 +108,8 @@ Senior full-stack technical assessment. Angular 17 + .NET 8 implementation of Sk
 
 ### Tooling
 
-- **EditorConfig** + Prettier + ESLint + `dotnet format` for consistent style.
-- **Git** with conventional commits.
+- **EditorConfig** for consistent baseline formatting.
+- **Git** for source control and reviewable sprint checkpoints.
 
 ---
 
@@ -254,12 +254,12 @@ Even though the brief does not mandate auth, the API surface is hardened defensi
   - `GlobalAirProvider` only fetches GlobalAir flights.
   - `GlobalAirPricingStrategy` only computes GlobalAir's price.
   - `FlightAggregator` only coordinates fan-out.
-  - `BookingService` only orchestrates booking creation.
+  - `BookingsController` handles booking request/response orchestration at API boundary.
   - `EfCoreBookingRepository` only handles persistence.
 - **O — Open/Closed.** Adding **BudgetWings** (and any future provider) does **not modify** `FlightAggregator`. It implements `IFlightProvider` and is added to DI. Pricing rules live in `IPricingStrategy` implementations — adding a "WeekendDiscount" strategy is additive.
 - **L — Liskov Substitution.** All `IFlightProvider` implementations honor the same contract (return `IReadOnlyList<FlightOffer>`, never `null`, throw only on infrastructure failure). The aggregator can substitute any implementation transparently. Pricing strategies and `IBookingRepository` implementations likewise — `EfCoreBookingRepository` could be replaced by an in-memory fake in tests with no behavioral surprises.
 - **I — Interface Segregation.** Interfaces are narrow: `IFlightProvider.SearchAsync(...)`, `IPricingStrategy.PriceFor(decimal baseFare)`, `IBookingRepository.SaveAsync(...)`. No god-interface forces clients to depend on methods they don't use.
-- **D — Dependency Inversion.** High-level `FlightAggregator` and `BookingService` depend on the abstractions (`IFlightProvider`, `IBookingRepository`), not on concrete `GlobalAirProvider` / `EfCoreBookingRepository`. Wiring happens in `Program.cs` via the built-in DI container, making each component independently testable.
+- **D — Dependency Inversion.** High-level flight aggregation and persistence flows depend on abstractions (`IFlightProvider`, `IBookingRepository`), not concrete implementations (`GlobalAirProvider`, `EfCoreBookingRepository`). Wiring happens in `Program.cs` via DI, making components independently testable.
 
 ---
 
@@ -267,19 +267,19 @@ Even though the brief does not mandate auth, the API surface is hardened defensi
 
 | Requirement                                                        | Where it lives                                                                          |
 | ------------------------------------------------------------------ | --------------------------------------------------------------------------------------- |
-| Search fields: origin, destination, date, passengers (1–9), cabin  | `SearchFormComponent` (Angular Reactive Form) + `SearchRequestValidator` (.NET).        |
-| ≥ 6 hardcoded airports, ≥ 2 countries                              | `Airports.json` / `AirportCatalog` static seed (e.g. MAD, BCN, AGP / JFK, LAX, MIA).    |
+| Search fields: origin, destination, date, passengers (1–9), cabin  | `search-page.component.ts` (Reactive Forms) + `SearchRequestValidator` (.NET).        |
+| ≥ 6 hardcoded airports, ≥ 2 countries                              | `AirportCatalog` static seed (e.g. MAD, BCN, AGP / JFK, LAX, MIA).    |
 | GlobalAir pricing (`base × 1.15`)                                  | `GlobalAirPricingStrategy.PriceFor` — unit-tested.                                      |
 | BudgetWings pricing (`max(base × 0.90, 29.99)`)                    | `BudgetWingsPricingStrategy.PriceFor` — unit-tested with floor case.                    |
-| Total price primary, per-passenger secondary                       | `FlightResultRowComponent` template; CSS hierarchy emphasises `total-price`.            |
-| Frontend-only sorting (4 modes)                                    | `SortPipe` / `SortService`; never re-queries API.                                       |
-| Loading indicator                                                  | Search service exposes `isSearching$`; `MatProgressSpinner` bound in template.          |
-| Empty state                                                        | `EmptyResultsComponent` shown when results array is empty post-search.                  |
+| Total price primary, per-passenger secondary                       | `search-page.component.ts` results table (total emphasized with stronger typography).            |
+| Frontend-only sorting (4 modes)                                    | Client-side computed sort in `search-page.component.ts`; never re-queries API.                                       |
+| Loading indicator                                                  | Search page binds loading state to inline spinner card and submit button state.          |
+| Empty state                                                        | Search page shows empty-state card when a search returns zero results.                  |
 | Booking flow: summary, breakdown, passenger forms, confirm         | `BookingPageComponent` + `FormArray` of passenger forms + `POST /api/bookings`.         |
-| One form per passenger (N from search)                             | `FormArray` size driven by `passengers` query param; `Passenger N of M` headers.        |
-| Booking reference returned                                         | `BookingService` generates `SR-XXXXXX`, persists via EF Core; `ConfirmationPageComponent` displays it. |
-| Dynamic document: Passport (intl) vs National ID (domestic)        | `DocumentFieldComponent` reacts to `route.isInternational` → swaps label + validator on every passenger row. |
-| Same-country detection                                             | `AirportCatalog.GetCountry(code)` consumed by frontend booking page logic.              |
+| One form per passenger (N from search)                             | `FormArray` size driven by selected flight `passengers`; `Passenger N of M` headers.        |
+| Booking reference returned                                         | `BookingsController` generates `SR-XXXXXX`, persists via EF Core; `confirmation-page.component.ts` displays it. |
+| Dynamic document: Passport (intl) vs National ID (domestic)        | `booking-page.component.ts` derives route type and swaps label + validator on each passenger row. |
+| Same-country detection                                             | Frontend compares airport countries loaded from `GET /api/airports`.              |
 
 ---
 
@@ -301,7 +301,7 @@ dotnet ef database update --project src/SkyRoute.Infrastructure --startup-projec
 dotnet run --project src/SkyRoute.Api
 # API on http://localhost:5080
 # Swagger on http://localhost:5080/swagger
-# SQLite file at backend/src/SkyRoute.Api/skyroute.db
+# SQLite file is created as skyroute.db in the process working directory.
 ```
 
 > If you don't have the EF Core CLI installed: `dotnet tool install --global dotnet-ef`.
@@ -310,7 +310,7 @@ dotnet run --project src/SkyRoute.Api
 
 ```bash
 cd frontend
-npm install
+npm ci
 npm start
 # App on http://localhost:4200
 ```
@@ -330,6 +330,9 @@ npm start
 ### Tests
 
 ```bash
+# Full suite (recommended)
+make test-all
+
 # Backend
 cd backend && dotnet test
 
@@ -354,8 +357,8 @@ cd frontend && npm test -- --watch=false
 ### Known limitations
 
 - No internationalisation (English only).
-- Accessibility pass is best-effort via Material defaults; no formal WCAG audit.
-- Rate limiting not yet enabled by default — config sample provided in `appsettings.Development.json`.
+- Accessibility pass is best-effort; no formal WCAG audit.
+- Rate limiting is enabled in API configuration; thresholds may need tuning for production traffic.
 - No CI pipeline.
 
 ### What I would do next

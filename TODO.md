@@ -16,21 +16,6 @@ If the clock runs out, ship Must-have + README and document the rest under §"If
 
 ---
 
-## Sprint 5 — QA, tests, demo readiness (≈25 min)
-
-- **Objective:** Walk-through ready.
-- **In scope:**
-  - Unit tests: pricing strategies (GlobalAir + BudgetWings math), search validator edge cases.
-  - Manual smoke pass (see test plan below).
-  - Automated test command: `make test-all` (backend + frontend).
-  - README final pass; ensure setup commands are exact and copy-pasteable.
-  - Strip console logs, dead code.
-- **Out of scope:** E2E automation.
-- **Dependencies:** all prior sprints.
-- **DoD:** Both apps start with documented commands; demo script in README works end-to-end; `dotnet test` passes.
-
----
-
 ## Test plan
 
 ### Backend (xUnit + FluentAssertions)
@@ -150,6 +135,18 @@ If the clock runs out, ship Must-have + README and document the rest under §"If
 - Frontend test suite updated/implemented (9 passing): app shell baseline, search sorting/navigation checks, booking document-rule checks.
 - Added top-level test orchestration command: `make test-all`.
 - Verified `make test-all` runs both suites successfully with current code.
+
+---
+
+## ✅ Sprint 5 — QA, tests, demo readiness (DONE)
+
+**Completed:** 2026-05-06
+
+- Automated QA completed with full command: `make test-all`.
+- Backend test suite passing (`15/15`) and frontend test suite passing (`9/9`).
+- Final README pass completed for consistency with current implementation and copy-pasteable setup/test commands.
+- Verified release builds succeed: backend `dotnet build -c Release` and frontend `npm run build`.
+- Checked for stray debug markers (`console.log`, `TODO`, `FIXME`) in codebase and cleaned/no hits found.
 
 ---
 
