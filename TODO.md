@@ -24,8 +24,8 @@ If the clock runs out, ship Must-have + README and document the rest under §"If
   - Service layer in Angular calls `POST /api/flights/search`; results model typed.
   - Results list rendered (provider, flight #, departure, arrival, duration, cabin, prices).
 - **Out of scope:** sorting, booking, error UI polish.
-- **Dependencies:** Sprint 0 ✅
-- **Risks:** mock determinism (same query → same results) — seed RNG by `(origin, destination, date, providerId)`. *(Already implemented in backend.)*
+- **Dependencies:** Sprint 0.
+- **Risks:** mock determinism (same query → same results) — seed RNG by `(origin, destination, date, providerId)`.
 - **DoD:** Submitting form returns ≥1 result per provider with correct math; verified with two manual test cases.
 
 ## Sprint 2 — Results, sorting, loading & empty states (≈30 min)
@@ -53,7 +53,7 @@ If the clock runs out, ship Must-have + README and document the rest under §"If
   - `POST /api/bookings` persists `Booking` + child `Passenger` rows; returns `{ bookingReference }` (`SR-XXXXXX`).
   - Confirmation view shows reference prominently and lists every passenger.
 - **Out of scope:** payment, seat selection, per-passenger price differences.
-- **Dependencies:** Sprint 1 (flight model), Sprint 0 ✅ (airports with country, EF Core).
+- **Dependencies:** Sprint 1 (flight model), Sprint 0 (airports with country, EF Core).
 - **Risks:** Dynamic validators on `FormArray` leaking stale state — `setValidators` + `updateValueAndValidity` on every row when route changes.
 - **DoD:** Domestic and international routes show correct label + validation per row; confirm persists to `skyroute.db`; reference visible.
 
@@ -62,8 +62,8 @@ If the clock runs out, ship Must-have + README and document the rest under §"If
 - **Objective:** Hardened API surface, errors surfaced in UI.
 - **In scope:**
   - Angular HTTP interceptor maps ProblemDetails to user-facing toast/inline errors.
-  - Verify FluentValidation rules fire on edge cases (already wired in Sprint 0 backend).
-  - Verify global exception middleware returns safe 500 (already wired).
+  - Verify FluentValidation rules fire on edge cases.
+  - Verify global exception middleware returns safe 500.
   - Client-side form validation prevents invalid submits.
 - **Out of scope:** auth, full i18n of errors.
 - **Dependencies:** Sprints 1 & 3.
@@ -150,3 +150,16 @@ If the clock runs out, ship Must-have + README and document the rest under §"If
 - Nav shell with live API-status badge calls `/health` on init.
 - `dotnet build` — 0 errors; `ng build` — clean, routes code-split.
 - `GET /health` → `{"status":"healthy"}` on `http://localhost:5080`.
+
+---
+
+## ✅ Sprint 1 — Search flow (DONE)
+
+**Completed:** 2026-05-06
+
+- Angular search form implemented with Reactive Forms: origin, destination, departure date, passengers (1-9), cabin class.
+- Search page now loads airports from `GET /api/airports`.
+- Form submit wired to `POST /api/flights/search` using typed `SearchRequest` and `SearchResponse`.
+- Client-side validation added for required fields, passenger range, and same origin/destination guard.
+- Results table rendered with provider, flight number, departure, arrival, duration, cabin, per-passenger price, and total price.
+- Frontend build verification completed (`ng build` clean after Sprint 1 changes).
