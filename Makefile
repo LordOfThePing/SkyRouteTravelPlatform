@@ -10,7 +10,7 @@ MIGRATION     ?= Migration
 
 .PHONY: all build backend frontend \
         backend-run frontend-run \
-        test backend-test \
+        test backend-test frontend-test test-all \
         migrate migrate-add migrate-remove \
         clean backend-clean frontend-clean \
         help
@@ -34,6 +34,8 @@ help:
 	@echo ""
 	@echo "  Test"
 	@echo "    make test             Run all backend unit tests"
+	@echo "    make frontend-test    Run frontend unit tests (headless)"
+	@echo "    make test-all         Run backend + frontend tests"
 	@echo ""
 	@echo "  Database / migrations"
 	@echo "    make migrate          Apply pending EF Core migrations"
@@ -68,8 +70,13 @@ frontend-run:
 
 test: backend-test
 
+test-all: backend-test frontend-test
+
 backend-test:
-	dotnet test $(BACKEND_SLN) -c Release --no-build --logger "console;verbosity=normal"
+	dotnet test $(BACKEND_SLN) -c Release --logger "console;verbosity=normal"
+
+frontend-test:
+	cd $(FRONTEND_DIR) && npm run test -- --watch=false --browsers=ChromeHeadless
 
 # ── Database ──────────────────────────────────────────────────────────────────
 

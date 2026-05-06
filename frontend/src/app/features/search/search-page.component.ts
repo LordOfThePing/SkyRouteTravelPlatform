@@ -1,6 +1,7 @@
 import { CommonModule, DatePipe, DecimalPipe } from '@angular/common';
 import { Component, OnInit, computed, inject, signal } from '@angular/core';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
+import { Router } from '@angular/router';
 import { finalize } from 'rxjs/operators';
 import { Airport } from '../../core/models/airport.model';
 import { FlightOffer, SearchRequest } from '../../core/models/flight.model';
@@ -121,6 +122,7 @@ import { ApiService } from '../../core/services/api.service';
                   <th class="px-4 py-3">Cabin</th>
                   <th class="px-4 py-3">Per passenger</th>
                   <th class="px-4 py-3">Total</th>
+                  <th class="px-4 py-3">Action</th>
                 </tr>
               </thead>
               <tbody class="divide-y divide-gray-100 bg-white text-sm text-gray-700">
@@ -134,6 +136,9 @@ import { ApiService } from '../../core/services/api.service';
                     <td class="px-4 py-3">{{ offer.cabinClass }}</td>
                     <td class="px-4 py-3">{{ offer.pricePerPassenger | number:'1.2-2' }} {{ offer.currency }}</td>
                     <td class="px-4 py-3 font-semibold text-gray-900">{{ offer.totalPrice | number:'1.2-2' }} {{ offer.currency }}</td>
+                    <td class="px-4 py-3">
+                      <button type="button" class="btn-secondary" (click)="goToBooking(offer)">Book</button>
+                    </td>
                   </tr>
                 }
               </tbody>
@@ -156,6 +161,7 @@ import { ApiService } from '../../core/services/api.service';
 export class SearchPageComponent implements OnInit {
   private readonly fb = inject(FormBuilder);
   private readonly api = inject(ApiService);
+  private readonly router = inject(Router);
 
   readonly sortOptions = [
     { value: 'price-asc', label: 'Price: low to high' },
@@ -222,6 +228,10 @@ export class SearchPageComponent implements OnInit {
 
   onSortChange(sort: (typeof this.sortOptions)[number]['value']): void {
     this.selectedSort.set(sort);
+  }
+
+  goToBooking(offer: FlightOffer): void {
+    this.router.navigate(['/booking'], { state: { flight: offer } });
   }
 
   private buildRequest(): SearchRequest {
