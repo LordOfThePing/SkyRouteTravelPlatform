@@ -16,33 +16,59 @@ If the clock runs out, ship Must-have + README and document the rest under §"If
 
 ---
 
-## Test plan
+## Manual smoke & interview checklist (run first)
+
+### Pre-interview quick checks (5-10 min)
+
+1. Run `make test-all` and confirm backend + frontend suites pass.
+2. Run backend (`dotnet run --project backend/src/SkyRoute.Api --launch-profile http`) and verify `GET /health` = healthy.
+3. Run frontend (`cd frontend && npm start`) and verify API badge is online.
+4. Open Swagger (`/swagger`) and keep it ready for live payload/error demos.
+
+### Manual smoke (core happy path)
+
+1. Search MAD → BCN, 2 pax, Economy → results from both providers; confirm domestic route.
+2. Search MAD → JFK, 1 pax, Business → results from both providers; confirm international route.
+3. Sort all four ways (price asc/desc, duration asc, departure asc) and verify ordering changes client-side.
+4. Book MAD → BCN, 2 pax → **National ID** label on both rows; submit → reference displayed.
+5. Book MAD → JFK, 1 pax → **Passport Number** label; submit → reference displayed.
+
+### Edge cases to verify before interview
+
+1. Search same origin/destination → blocked client-side before API call.
+2. Passengers boundary: 0 and 10 rejected; 1 and 9 accepted.
+3. Departure date in the past blocked by validation.
+4. Empty/invalid booking fields show inline errors (name/email/document).
+5. Domestic document invalid format rejected; international invalid format rejected.
+6. API down (`status = 0`) shows graceful frontend message (not blank screen/crash).
+7. Force API 400 (invalid payload via Swagger) and confirm mapped ProblemDetails message appears in UI.
+8. Search returning no flights shows empty-state card with refinement guidance.
+9. Tie-case sorting sanity: equal sort key falls back consistently (flight number/original order).
+
+### During interview (pick 3-4 live edge cases)
+
+1. Show same-origin search validation.
+2. Show domestic vs international document label/validator switch.
+3. Stop API briefly to demonstrate graceful frontend error handling.
+4. Use Swagger invalid payload to show backend validation + ProblemDetails contract.
+5. Show deterministic behavior: same search inputs return stable mock results.
+
+## Automated test plan (implemented)
 
 ### Backend (xUnit + FluentAssertions)
 
-- `GlobalAirPricingTests`: 100 → 115.00; 100.001 → rounding behavior; zero base.
-- `BudgetWingsPricingTests`: 100 → 90.00; 30 → 29.99 (floor); 1000 → 900.00.
-- `FlightAggregatorTests`: returns union of providers; failure of one provider does not crash request.
-- `SearchValidatorTests`: passengers 0 / 10 rejected; same origin/destination rejected; past date rejected.
-- `BookingValidatorTests`: email format; document required; flight ref required.
-- `BookingRepositoryTests` (EF Core in-memory): persists booking + passenger children; returns generated reference.
+- `GlobalAirPricingStrategyTests`: surcharge math, rounding, zero base.
+- `BudgetWingsPricingStrategyTests`: discount math, floor behavior, high fare case.
+- `FlightAggregatorTests`: provider result union; one-provider failure isolation.
+- `SearchRequestValidatorTests`: passenger bounds, same route rejection, past date rejection.
+- `BookingRequestValidatorTests`: invalid email, missing document number, missing flight id.
+- `BookingRepositoryTests` (EF Core in-memory): persists booking with passenger children; retrieves by reference.
 
-### Frontend (Jasmine/Karma — minimal)
+### Frontend (Jasmine/Karma)
 
-- `SortPipe` or service: each of the 4 sorts on a fixture array.
-- Document label/validator logic: switches on `isInternational` flag.
-- `SearchFormComponent`: invalid form disables submit.
-
-### Manual smoke (always run before demo)
-
-1. Search MAD → BCN, 2 pax, Economy → results from both providers; confirm domestic.
-2. Search MAD → JFK, 1 pax, Business → results; confirm international.
-3. Sort all four ways, verify ordering.
-4. Search same origin/destination → validation error before API call.
-5. Book MAD → BCN, 2 pax → **National ID** label on both passenger rows; submit → reference shown.
-6. Book MAD → JFK, 1 pax → **Passport Number** label; submit → reference shown.
-7. Submit empty booking form → see validation errors on every required field.
-8. Stop API → verify FE shows graceful error (not blank screen).
+- `SearchPageComponent`: invalid form disables submit; all four sort modes; booking navigation state pass-through.
+- `BookingPageComponent`: domestic/international document label switch; domestic submit sends `NationalId`.
+- `AppComponent`: shell renders correctly.
 
 ---
 
@@ -127,29 +153,6 @@ If the clock runs out, ship Must-have + README and document the rest under §"If
 
 ---
 
-## ✅ QA baseline — Automated tests (DONE)
-
-**Completed:** 2026-05-06
-
-- Backend test suite implemented (15 passing): pricing strategies, aggregator behavior, search validator edge cases, booking validator edge cases.
-- Frontend test suite updated/implemented (9 passing): app shell baseline, search sorting/navigation checks, booking document-rule checks.
-- Added top-level test orchestration command: `make test-all`.
-- Verified `make test-all` runs both suites successfully with current code.
-
----
-
-## ✅ Sprint 5 — QA, tests, demo readiness (DONE)
-
-**Completed:** 2026-05-06
-
-- Automated QA completed with full command: `make test-all`.
-- Backend test suite passing (`15/15`) and frontend test suite passing (`9/9`).
-- Final README pass completed for consistency with current implementation and copy-pasteable setup/test commands.
-- Verified release builds succeed: backend `dotnet build -c Release` and frontend `npm run build`.
-- Checked for stray debug markers (`console.log`, `TODO`, `FIXME`) in codebase and cleaned/no hits found.
-
----
-
 ## ✅ Sprint 4 — API hardening + Angular error handling (DONE)
 
 **Completed:** 2026-05-06
@@ -160,3 +163,25 @@ If the clock runs out, ship Must-have + README and document the rest under §"If
 - Backend validation and safe error contracts verified through automated tests:
   - search and booking validator edge-case suites passing in backend test project,
   - frontend test suite passing after interceptor integration.
+
+---
+
+## ✅ QA baseline — Automated tests (DONE)
+
+**Completed:** 2026-05-06
+
+- Backend test suite implemented and extended (`17/17` passing): pricing strategies, aggregator behavior, search validator edge cases, booking validator edge cases, repository persistence/retrieval behavior.
+- Frontend test suite updated/implemented (`11/11` passing): app shell baseline, search sorting/navigation checks (all 4 sorts), booking document-rule checks.
+- Added top-level test orchestration command: `make test-all`.
+- Verified `make test-all` runs both suites successfully with current code.
+
+---
+
+## ✅ Sprint 5 — QA, tests, demo readiness (DONE)
+
+**Completed:** 2026-05-06
+
+- Automated QA completed with full command: `make test-all`.
+- Final README pass completed for consistency with current implementation and copy-pasteable setup/test commands.
+- Verified release builds succeed: backend `dotnet build -c Release` and frontend `npm run build`.
+- Checked for stray debug markers (`console.log`, `TODO`, `FIXME`) in codebase and cleaned/no hits found.
