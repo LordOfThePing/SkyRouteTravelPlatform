@@ -219,7 +219,7 @@ export class BookingPageComponent {
           },
         });
       },
-      error: () => this.errorMessage.set('Booking failed. Please check passenger data and try again.'),
+      error: err => this.errorMessage.set(this.readApiError(err, 'Booking failed. Please check passenger data and try again.')),
     });
   }
 
@@ -263,5 +263,13 @@ export class BookingPageComponent {
       documentType: this.isInternational() ? 'Passport' : 'NationalId',
       documentNumber: passenger.documentNumber.trim().toUpperCase(),
     };
+  }
+
+  private readApiError(error: unknown, fallback: string): string {
+    if (error instanceof Error && error.message) {
+      return error.message;
+    }
+
+    return fallback;
   }
 }

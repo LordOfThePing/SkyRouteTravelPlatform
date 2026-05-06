@@ -16,40 +16,13 @@ If the clock runs out, ship Must-have + README and document the rest under §"If
 
 ---
 
-## Sprint 3 — Booking flow + multi-passenger + dynamic document rule (≈55 min)
-
-- **Objective:** Functional booking with route-aware document field, one form per passenger, persisted in SQLite.
-- **In scope:**
-  - Route `/booking` (state-passed flight summary to avoid re-fetch).
-  - Booking screen: flight summary, price breakdown (per-passenger × count = total), **passenger forms array (one per passenger)**.
-  - Per-passenger fields: full name, email, document number.
-  - `FormArray` of `FormGroup` — passenger count from search drives rendered forms; show `Passenger 1 of N` headers.
-  - **Dynamic document logic** on every row: `Passport Number` (international) vs `National ID` (domestic), validator switches dynamically.
-  - `POST /api/bookings` persists `Booking` + child `Passenger` rows; returns `{ bookingReference }` (`SR-XXXXXX`).
-  - Confirmation view shows reference prominently and lists every passenger.
-- **Out of scope:** payment, seat selection, per-passenger price differences.
-- **Dependencies:** Sprint 1 (flight model), Sprint 0 (airports with country, EF Core).
-- **Risks:** Dynamic validators on `FormArray` leaking stale state — `setValidators` + `updateValueAndValidity` on every row when route changes.
-- **DoD:** Domestic and international routes show correct label + validation per row; confirm persists to `skyroute.db`; reference visible.
-
-## Sprint 4 — API hardening + Angular error handling (≈25 min)
-
-- **Objective:** Hardened API surface, errors surfaced in UI.
-- **In scope:**
-  - Angular HTTP interceptor maps ProblemDetails to user-facing toast/inline errors.
-  - Verify FluentValidation rules fire on edge cases.
-  - Verify global exception middleware returns safe 500.
-  - Client-side form validation prevents invalid submits.
-- **Out of scope:** auth, full i18n of errors.
-- **Dependencies:** Sprints 1 & 3.
-- **DoD:** Invalid payloads return structured 400; unexpected errors return safe 500; UI surfaces both.
-
 ## Sprint 5 — QA, tests, demo readiness (≈25 min)
 
 - **Objective:** Walk-through ready.
 - **In scope:**
   - Unit tests: pricing strategies (GlobalAir + BudgetWings math), search validator edge cases.
   - Manual smoke pass (see test plan below).
+  - Automated test command: `make test-all` (backend + frontend).
   - README final pass; ensure setup commands are exact and copy-pasteable.
   - Strip console logs, dead code.
 - **Out of scope:** E2E automation.
@@ -151,3 +124,42 @@ If the clock runs out, ship Must-have + README and document the rest under §"If
 - Empty-state card added for successful searches returning no flights, with guidance to refine criteria.
 - Results list now renders from computed sorted data while preserving total price prominence.
 - Frontend build verification completed (`ng build` clean after Sprint 2 changes).
+
+---
+
+## ✅ Sprint 3 — Booking flow + multi-passenger + dynamic document rule (DONE)
+
+**Completed:** 2026-05-06
+
+- Search results now include `Book` action, passing selected flight to `/booking` via router state.
+- Booking page implemented with flight summary and price breakdown.
+- Passenger `FormArray` implemented with one form per passenger based on selected offer passenger count.
+- Dynamic document behavior implemented: domestic routes use `National ID`, international routes use `Passport Number`.
+- Dynamic validators applied per passenger row when route/country context resolves.
+- `POST /api/bookings` wired from frontend; successful booking redirects to `/confirmation`.
+- Confirmation page implemented with booking reference, flight details, and full passenger list.
+- Frontend build verification completed (`ng build` clean after Sprint 3 changes).
+
+---
+
+## ✅ QA baseline — Automated tests (DONE)
+
+**Completed:** 2026-05-06
+
+- Backend test suite implemented (15 passing): pricing strategies, aggregator behavior, search validator edge cases, booking validator edge cases.
+- Frontend test suite updated/implemented (9 passing): app shell baseline, search sorting/navigation checks, booking document-rule checks.
+- Added top-level test orchestration command: `make test-all`.
+- Verified `make test-all` runs both suites successfully with current code.
+
+---
+
+## ✅ Sprint 4 — API hardening + Angular error handling (DONE)
+
+**Completed:** 2026-05-06
+
+- Angular global HTTP interceptor implemented to map backend `ProblemDetails` into user-facing error messages.
+- Network-level API failures (`status = 0`) now surface a clear frontend message about backend availability.
+- Search and booking flows now consume mapped API errors consistently instead of generic fallback-only messages.
+- Backend validation and safe error contracts verified through automated tests:
+  - search and booking validator edge-case suites passing in backend test project,
+  - frontend test suite passing after interceptor integration.

@@ -190,7 +190,7 @@ export class SearchPageComponent implements OnInit {
   ngOnInit(): void {
     this.api.getAirports().subscribe({
       next: airports => this.airports.set(airports),
-      error: () => this.errorMessage.set('Could not load airports. Please refresh the page.'),
+      error: err => this.errorMessage.set(this.readApiError(err, 'Could not load airports. Please refresh the page.')),
     });
   }
 
@@ -216,7 +216,7 @@ export class SearchPageComponent implements OnInit {
       finalize(() => this.isLoading.set(false)),
     ).subscribe({
       next: response => this.offers.set(response.results),
-      error: () => this.errorMessage.set('Search failed. Please try again.'),
+      error: err => this.errorMessage.set(this.readApiError(err, 'Search failed. Please try again.')),
     });
   }
 
@@ -241,6 +241,14 @@ export class SearchPageComponent implements OnInit {
       originCode: value.originCode.toUpperCase(),
       destinationCode: value.destinationCode.toUpperCase(),
     };
+  }
+
+  private readApiError(error: unknown, fallback: string): string {
+    if (error instanceof Error && error.message) {
+      return error.message;
+    }
+
+    return fallback;
   }
 
   private sortOffers(
