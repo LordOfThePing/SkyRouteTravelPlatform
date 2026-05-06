@@ -1,10 +1,14 @@
 import { CommonModule, DatePipe, DecimalPipe } from '@angular/common';
 import { Component, OnInit, computed, inject, signal } from '@angular/core';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
-import { finalize } from 'rxjs/operators';
+import { Router } from '@angular/router';
+import { forkJoin, timer } from 'rxjs';
+import { finalize, map } from 'rxjs/operators';
 import { Airport } from '../../core/models/airport.model';
 import { FlightOffer, SearchRequest } from '../../core/models/flight.model';
 import { ApiService } from '../../core/services/api.service';
+
+const MIN_LOADING_MS = 2000;
 
 @Component({
   selector: 'app-search-page',
@@ -121,6 +125,7 @@ import { ApiService } from '../../core/services/api.service';
                   <th class="px-4 py-3">Cabin</th>
                   <th class="px-4 py-3">Per passenger</th>
                   <th class="px-4 py-3">Total</th>
+                  <th class="px-4 py-3">Action</th>
                 </tr>
               </thead>
               <tbody class="divide-y divide-gray-100 bg-white text-sm text-gray-700">
@@ -134,6 +139,9 @@ import { ApiService } from '../../core/services/api.service';
                     <td class="px-4 py-3">{{ offer.cabinClass }}</td>
                     <td class="px-4 py-3">{{ offer.pricePerPassenger | number:'1.2-2' }} {{ offer.currency }}</td>
                     <td class="px-4 py-3 font-semibold text-gray-900">{{ offer.totalPrice | number:'1.2-2' }} {{ offer.currency }}</td>
+                    <td class="px-4 py-3">
+                      <button type="button" class="btn-secondary" (click)="goToBooking(offer)">Book</button>
+                    </td>
                   </tr>
                 }
               </tbody>
@@ -156,6 +164,7 @@ import { ApiService } from '../../core/services/api.service';
 export class SearchPageComponent implements OnInit {
   private readonly fb = inject(FormBuilder);
   private readonly api = inject(ApiService);
+  private readonly router = inject(Router);
 
   readonly sortOptions = [
     { value: 'price-asc', label: 'Price: low to high' },
@@ -184,7 +193,7 @@ export class SearchPageComponent implements OnInit {
   ngOnInit(): void {
     this.api.getAirports().subscribe({
       next: airports => this.airports.set(airports),
-      error: () => this.errorMessage.set('Could not load airports. Please refresh the page.'),
+      error: err => this.errorMessage.set(this.readApiError(err, 'Could not load airports. Please refresh the page.')),
     });
   }
 
@@ -206,11 +215,18 @@ export class SearchPageComponent implements OnInit {
     const request = this.buildRequest();
     this.isLoading.set(true);
 
-    this.api.searchFlights(request).pipe(
+    // Hold the spinner for at least MIN_LOADING_MS so the loading state is
+    // perceivable even when the mock returns instantly. The API call and the
+    // timer run concurrently; whichever finishes last unblocks the UI.
+    forkJoin({
+      response: this.api.searchFlights(request),
+      _delay: timer(MIN_LOADING_MS),
+    }).pipe(
+      map(({ response }) => response),
       finalize(() => this.isLoading.set(false)),
     ).subscribe({
       next: response => this.offers.set(response.results),
-      error: () => this.errorMessage.set('Search failed. Please try again.'),
+      error: err => this.errorMessage.set(this.readApiError(err, 'Search failed. Please try again.')),
     });
   }
 
@@ -224,6 +240,10 @@ export class SearchPageComponent implements OnInit {
     this.selectedSort.set(sort);
   }
 
+  goToBooking(offer: FlightOffer): void {
+    this.router.navigate(['/booking'], { state: { flight: offer } });
+  }
+
   private buildRequest(): SearchRequest {
     const value = this.searchForm.getRawValue();
     return {
@@ -231,6 +251,14 @@ export class SearchPageComponent implements OnInit {
       originCode: value.originCode.toUpperCase(),
       destinationCode: value.destinationCode.toUpperCase(),
     };
+  }
+
+  private readApiError(error: unknown, fallback: string): string {
+    if (error instanceof Error && error.message) {
+      return error.message;
+    }
+
+    return fallback;
   }
 
   private sortOffers(

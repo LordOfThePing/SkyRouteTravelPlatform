@@ -16,75 +16,59 @@ If the clock runs out, ship Must-have + README and document the rest under §"If
 
 ---
 
-## Sprint 3 — Booking flow + multi-passenger + dynamic document rule (≈55 min)
+## Manual smoke & interview checklist (run first)
 
-- **Objective:** Functional booking with route-aware document field, one form per passenger, persisted in SQLite.
-- **In scope:**
-  - Route `/booking` (state-passed flight summary to avoid re-fetch).
-  - Booking screen: flight summary, price breakdown (per-passenger × count = total), **passenger forms array (one per passenger)**.
-  - Per-passenger fields: full name, email, document number.
-  - `FormArray` of `FormGroup` — passenger count from search drives rendered forms; show `Passenger 1 of N` headers.
-  - **Dynamic document logic** on every row: `Passport Number` (international) vs `National ID` (domestic), validator switches dynamically.
-  - `POST /api/bookings` persists `Booking` + child `Passenger` rows; returns `{ bookingReference }` (`SR-XXXXXX`).
-  - Confirmation view shows reference prominently and lists every passenger.
-- **Out of scope:** payment, seat selection, per-passenger price differences.
-- **Dependencies:** Sprint 1 (flight model), Sprint 0 (airports with country, EF Core).
-- **Risks:** Dynamic validators on `FormArray` leaking stale state — `setValidators` + `updateValueAndValidity` on every row when route changes.
-- **DoD:** Domestic and international routes show correct label + validation per row; confirm persists to `skyroute.db`; reference visible.
+### Pre-interview quick checks (5-10 min)
 
-## Sprint 4 — API hardening + Angular error handling (≈25 min)
+1. Run `make test-all` and confirm backend + frontend suites pass.
+2. Run backend (`dotnet run --project backend/src/SkyRoute.Api --launch-profile http`) and verify `GET /health` = healthy.
+3. Run frontend (`cd frontend && npm start`) and verify API badge is online.
+4. Open Swagger (`/swagger`) and keep it ready for live payload/error demos.
 
-- **Objective:** Hardened API surface, errors surfaced in UI.
-- **In scope:**
-  - Angular HTTP interceptor maps ProblemDetails to user-facing toast/inline errors.
-  - Verify FluentValidation rules fire on edge cases.
-  - Verify global exception middleware returns safe 500.
-  - Client-side form validation prevents invalid submits.
-- **Out of scope:** auth, full i18n of errors.
-- **Dependencies:** Sprints 1 & 3.
-- **DoD:** Invalid payloads return structured 400; unexpected errors return safe 500; UI surfaces both.
+### Manual smoke (core happy path)
 
-## Sprint 5 — QA, tests, demo readiness (≈25 min)
+1. Search MAD → BCN, 2 pax, Economy → results from both providers; confirm domestic route.
+2. Search MAD → JFK, 1 pax, Business → results from both providers; confirm international route.
+3. Sort all four ways (price asc/desc, duration asc, departure asc) and verify ordering changes client-side.
+4. Book MAD → BCN, 2 pax → **National ID** label on both rows; submit → reference displayed.
+5. Book MAD → JFK, 1 pax → **Passport Number** label; submit → reference displayed.
 
-- **Objective:** Walk-through ready.
-- **In scope:**
-  - Unit tests: pricing strategies (GlobalAir + BudgetWings math), search validator edge cases.
-  - Manual smoke pass (see test plan below).
-  - README final pass; ensure setup commands are exact and copy-pasteable.
-  - Strip console logs, dead code.
-- **Out of scope:** E2E automation.
-- **Dependencies:** all prior sprints.
-- **DoD:** Both apps start with documented commands; demo script in README works end-to-end; `dotnet test` passes.
+### Edge cases to verify before interview
 
----
+1. Search same origin/destination → blocked client-side before API call.
+2. Passengers boundary: 0 and 10 rejected; 1 and 9 accepted.
+3. Departure date in the past blocked by validation.
+4. Empty/invalid booking fields show inline errors (name/email/document).
+5. Domestic document invalid format rejected; international invalid format rejected.
+6. API down (`status = 0`) shows graceful frontend message (not blank screen/crash).
+7. Force API 400 (invalid payload via Swagger) and confirm mapped ProblemDetails message appears in UI.
+8. Search returning no flights shows empty-state card with refinement guidance.
+9. Tie-case sorting sanity: equal sort key falls back consistently (flight number/original order).
 
-## Test plan
+### During interview (pick 3-4 live edge cases)
+
+1. Show same-origin search validation.
+2. Show domestic vs international document label/validator switch.
+3. Stop API briefly to demonstrate graceful frontend error handling.
+4. Use Swagger invalid payload to show backend validation + ProblemDetails contract.
+5. Show deterministic behavior: same search inputs return stable mock results.
+
+## Automated test plan (implemented)
 
 ### Backend (xUnit + FluentAssertions)
 
-- `GlobalAirPricingTests`: 100 → 115.00; 100.001 → rounding behavior; zero base.
-- `BudgetWingsPricingTests`: 100 → 90.00; 30 → 29.99 (floor); 1000 → 900.00.
-- `FlightAggregatorTests`: returns union of providers; failure of one provider does not crash request.
-- `SearchValidatorTests`: passengers 0 / 10 rejected; same origin/destination rejected; past date rejected.
-- `BookingValidatorTests`: email format; document required; flight ref required.
-- `BookingRepositoryTests` (EF Core in-memory): persists booking + passenger children; returns generated reference.
+- `GlobalAirPricingStrategyTests`: surcharge math, rounding, zero base.
+- `BudgetWingsPricingStrategyTests`: discount math, floor behavior, high fare case.
+- `FlightAggregatorTests`: provider result union; one-provider failure isolation.
+- `SearchRequestValidatorTests`: passenger bounds, same route rejection, past date rejection.
+- `BookingRequestValidatorTests`: invalid email, missing document number, missing flight id.
+- `BookingRepositoryTests` (EF Core in-memory): persists booking with passenger children; retrieves by reference.
 
-### Frontend (Jasmine/Karma — minimal)
+### Frontend (Jasmine/Karma)
 
-- `SortPipe` or service: each of the 4 sorts on a fixture array.
-- Document label/validator logic: switches on `isInternational` flag.
-- `SearchFormComponent`: invalid form disables submit.
-
-### Manual smoke (always run before demo)
-
-1. Search MAD → BCN, 2 pax, Economy → results from both providers; confirm domestic.
-2. Search MAD → JFK, 1 pax, Business → results; confirm international.
-3. Sort all four ways, verify ordering.
-4. Search same origin/destination → validation error before API call.
-5. Book MAD → BCN, 2 pax → **National ID** label on both passenger rows; submit → reference shown.
-6. Book MAD → JFK, 1 pax → **Passport Number** label; submit → reference shown.
-7. Submit empty booking form → see validation errors on every required field.
-8. Stop API → verify FE shows graceful error (not blank screen).
+- `SearchPageComponent`: invalid form disables submit; all four sort modes; booking navigation state pass-through.
+- `BookingPageComponent`: domestic/international document label switch; domestic submit sends `NationalId`.
+- `AppComponent`: shell renders correctly.
 
 ---
 
@@ -151,3 +135,53 @@ If the clock runs out, ship Must-have + README and document the rest under §"If
 - Empty-state card added for successful searches returning no flights, with guidance to refine criteria.
 - Results list now renders from computed sorted data while preserving total price prominence.
 - Frontend build verification completed (`ng build` clean after Sprint 2 changes).
+
+---
+
+## ✅ Sprint 3 — Booking flow + multi-passenger + dynamic document rule (DONE)
+
+**Completed:** 2026-05-06
+
+- Search results now include `Book` action, passing selected flight to `/booking` via router state.
+- Booking page implemented with flight summary and price breakdown.
+- Passenger `FormArray` implemented with one form per passenger based on selected offer passenger count.
+- Dynamic document behavior implemented: domestic routes use `National ID`, international routes use `Passport Number`.
+- Dynamic validators applied per passenger row when route/country context resolves.
+- `POST /api/bookings` wired from frontend; successful booking redirects to `/confirmation`.
+- Confirmation page implemented with booking reference, flight details, and full passenger list.
+- Frontend build verification completed (`ng build` clean after Sprint 3 changes).
+
+---
+
+## ✅ Sprint 4 — API hardening + Angular error handling (DONE)
+
+**Completed:** 2026-05-06
+
+- Angular global HTTP interceptor implemented to map backend `ProblemDetails` into user-facing error messages.
+- Network-level API failures (`status = 0`) now surface a clear frontend message about backend availability.
+- Search and booking flows now consume mapped API errors consistently instead of generic fallback-only messages.
+- Backend validation and safe error contracts verified through automated tests:
+  - search and booking validator edge-case suites passing in backend test project,
+  - frontend test suite passing after interceptor integration.
+
+---
+
+## ✅ QA baseline — Automated tests (DONE)
+
+**Completed:** 2026-05-06
+
+- Backend test suite implemented and extended (`17/17` passing): pricing strategies, aggregator behavior, search validator edge cases, booking validator edge cases, repository persistence/retrieval behavior.
+- Frontend test suite updated/implemented (`11/11` passing): app shell baseline, search sorting/navigation checks (all 4 sorts), booking document-rule checks.
+- Added top-level test orchestration command: `make test-all`.
+- Verified `make test-all` runs both suites successfully with current code.
+
+---
+
+## ✅ Sprint 5 — QA, tests, demo readiness (DONE)
+
+**Completed:** 2026-05-06
+
+- Automated QA completed with full command: `make test-all`.
+- Final README pass completed for consistency with current implementation and copy-pasteable setup/test commands.
+- Verified release builds succeed: backend `dotnet build -c Release` and frontend `npm run build`.
+- Checked for stray debug markers (`console.log`, `TODO`, `FIXME`) in codebase and cleaned/no hits found.

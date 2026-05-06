@@ -5,9 +5,7 @@
 **/obj/
 *.user
 *.suo
-*.db
-*.db-shm
-*.db-wal
+backend/data
 
 # Angular
 frontend/node_modules/
