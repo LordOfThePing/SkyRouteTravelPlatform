@@ -4,13 +4,13 @@ using SkyRoute.Infrastructure.Pricing;
 
 namespace SkyRoute.Infrastructure.Providers;
 
-public class BudgetWingsProvider : IFlightProvider
+public class ArcticAirProvider : IFlightProvider
 {
     private readonly IPricingStrategy _pricing;
 
-    public BudgetWingsProvider(BudgetWingsPricingStrategy pricing) => _pricing = pricing;
+    public ArcticAirProvider(ArcticAirPricingStrategy pricing) => _pricing = pricing;
 
-    public string ProviderId => "BudgetWings";
+    public string ProviderId => "ArcticAir";
 
     public Task<IReadOnlyList<FlightOffer>> SearchAsync(SearchRequest request, CancellationToken ct = default)
     {
@@ -30,7 +30,7 @@ public class BudgetWingsProvider : IFlightProvider
             var departureHour = rng.Next(5, 23);
             var departureMinute = rng.Next(0, 12) * 5;
             var durationMinutes = rng.Next(45, 720);
-            var baseFare = Math.Round((decimal)(rng.Next(25, 700) + rng.NextDouble()), 2);
+            var baseFare = Math.Round((decimal)(rng.Next(35, 800) + rng.NextDouble()), 2);
 
             var departure = new DateTimeOffset(
                 request.DepartureDate.Year, request.DepartureDate.Month, request.DepartureDate.Day,
@@ -38,10 +38,10 @@ public class BudgetWingsProvider : IFlightProvider
 
             var pricePerPassenger = _pricing.PriceFor(baseFare);
             var total = Math.Round(pricePerPassenger * request.Passengers, 2);
-            var flightNum = $"BW{200 + Math.Abs(seed % 700) + i}";
+            var flightNum = $"AA{500 + Math.Abs(seed % 4000) + i}";
 
             offers.Add(new FlightOffer(
-                Id: $"BW-{Math.Abs(seed):X6}-{i}",
+                Id: $"AA-{Math.Abs(seed):X6}-{i}",
                 Provider: ProviderId,
                 FlightNumber: flightNum,
                 OriginCode: request.OriginCode.ToUpperInvariant(),

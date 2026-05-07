@@ -22,7 +22,7 @@ public class GlobalAirProvider : IFlightProvider
             ProviderId);
 
         var rng = new Random(seed);
-        var count = rng.Next(3, 7);
+        var count = rng.Next(0, 7);
         var offers = new List<FlightOffer>(count);
 
         for (var i = 0; i < count; i++)

@@ -22,9 +22,11 @@ public static class InfrastructureServiceExtensions
 
         services.AddSingleton<GlobalAirPricingStrategy>();
         services.AddSingleton<BudgetWingsPricingStrategy>();
+        services.AddSingleton<ArcticAirPricingStrategy>();
 
         services.AddSingleton<IFlightProvider, GlobalAirProvider>();
         services.AddSingleton<IFlightProvider, BudgetWingsProvider>();
+        services.AddSingleton<IFlightProvider, ArcticAirProvider>();
 
         services.AddSingleton<IFlightAggregator, FlightAggregator>();
 
